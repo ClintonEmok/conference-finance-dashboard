@@ -26,7 +26,10 @@ export default async function PayPage({ params }: PayPageProps) {
 
   const event = await fetchQuery(api.events.getEventBySlug, { slug: eventSlug })
 
-  if (!event) {
+  // `getEventBySlug` is shared with the operator dashboard, which must see
+  // drafts, so the public gate lives here. `isPublished` only — a published
+  // event whose signup has closed must still accept payment.
+  if (!event || !event.isPublished) {
     notFound()
   }
 

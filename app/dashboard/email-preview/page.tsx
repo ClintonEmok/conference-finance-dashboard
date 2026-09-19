@@ -100,7 +100,10 @@ export default async function EmailPreviewPage() {
               <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 bg-card p-3">
                 <span className="text-muted-foreground">Payment total</span>
                 <span className="font-semibold">
-                  {formatMoney(sampleProps.tikkieAmountMinor ?? 0)}
+                  {formatMoney(
+                    sampleProps.tikkieAmountMinor ?? 0,
+                    sampleProps.tikkieCurrency
+                  )}
                 </span>
               </div>
             </CardContent>

@@ -21,9 +21,11 @@ import type { LocationGroup } from "@/lib/domain/finance/stakeholder-report"
 export function ReportLocationDetail({
   groups,
   generatedAt,
+  currency,
 }: {
   groups: LocationGroup[]
   generatedAt: string
+  currency: string
 }) {
   const totalAttendees = groups.reduce((sum, g) => sum + g.attendeeCount, 0)
   const totalDue = groups.reduce((sum, g) => sum + g.amountDueMinor, 0)
@@ -48,10 +50,13 @@ export function ReportLocationDetail({
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {[
               { label: "Attendees", value: totalAttendees.toLocaleString() },
-              { label: "Amount due", value: formatMoney(totalDue) },
-              { label: "Amount paid", value: formatMoney(totalPaid) },
-              { label: "Amount outstanding", value: formatMoney(totalOutstanding) },
-              { label: "Donation", value: formatMoney(totalOverpaid) },
+              { label: "Amount due", value: formatMoney(totalDue, currency) },
+              { label: "Amount paid", value: formatMoney(totalPaid, currency) },
+              {
+                label: "Amount outstanding",
+                value: formatMoney(totalOutstanding, currency),
+              },
+              { label: "Donation", value: formatMoney(totalOverpaid, currency) },
             ].map((card) => (
               <div
                 key={card.label}
@@ -108,19 +113,19 @@ export function ReportLocationDetail({
                   <div>
                     <span className="text-sm text-muted-foreground">Amount due </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
-                      {formatMoney(group.amountDueMinor)}
+                       {formatMoney(group.amountDueMinor, currency)}
                     </span>
                   </div>
                   <div>
                     <span className="text-sm text-muted-foreground">Amount paid </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-emerald-500">
-                      {formatMoney(group.paidMinor)}
+                       {formatMoney(group.paidMinor, currency)}
                     </span>
                   </div>
                   <div>
                     <span className="text-sm text-muted-foreground">Amount outstanding </span>
                     <span className="mt-1 block text-lg font-semibold tabular-nums text-foreground">
-                      {formatMoney(group.outstandingMinor)}
+                       {formatMoney(group.outstandingMinor, currency)}
                     </span>
                   </div>
                 </div>
@@ -143,13 +148,13 @@ export function ReportLocationDetail({
                             {attendee.name}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {formatMoney(attendee.amountDueMinor)}
+                            {formatMoney(attendee.amountDueMinor, currency)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-emerald-600">
-                            {formatMoney(attendee.paidMinor)}
+                            {formatMoney(attendee.paidMinor, currency)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-foreground">
-                            {formatMoney(attendee.outstandingMinor)}
+                            {formatMoney(attendee.outstandingMinor, currency)}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {attendee.ticketTypeLabel ?? "–"}

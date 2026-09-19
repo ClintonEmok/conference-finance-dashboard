@@ -119,7 +119,7 @@ const D05_ITEMS: ReadonlyArray<{
     pinFile: "tests/dashboard/donation-allocation-dialog.test.ts",
     anchors: [
       String.raw`/label="Writable now"[\s\S]{0,120}valueMinor=\{row\.effectiveCapacityMinor\}/`,
-      String.raw`/label="Writable now"[\s\S]{0,120}tone="primary"/`,
+       String.raw`/label="Writable now"[\s\S]{0,200}tone="primary"/`,
       String.raw`/label="Will allocate"[\s\S]{0,120}valueMinor=\{row\.amountMinor\}/`,
     ],
   },
@@ -140,8 +140,8 @@ const D05_ITEMS: ReadonlyArray<{
     anchors: [
       'record.indexOf("Scope balance</TableHead>")',
       'record.indexOf("Writable now</TableHead>")',
-      "formatMoney(row.scopeOutstandingMinor)",
-      "formatMoney(row.effectiveCapacityMinor)",
+       "formatMoney(row.scopeOutstandingMinor, currency)",
+       "formatMoney(row.effectiveCapacityMinor, currency)",
       "expect(writableCellIndex).toBeGreaterThan(-1)",
       "expect(scopeCellIndex).toBeLessThan(writableCellIndex)",
     ],
@@ -204,7 +204,7 @@ const D05_ITEMS: ReadonlyArray<{
       {
         pinFile: "tests/dashboard/donation-allocation-dialog.test.ts",
         anchors: [
-          String.raw`/Rounding remainder:[\s\S]{0,80}formatMoney\(quote\.remainderMinor\)/`,
+          String.raw`/Rounding remainder:[\s\S]{0,80}formatMoney\(quote\.remainderMinor, currency\)/`,
           'expect(dialog).toContain("Rounding remainder")',
           String.raw`/\+\{row\.extraMinorUnits\}\s*minor unit/`,
         ],
@@ -415,9 +415,9 @@ describe("cross-host obligations after the move", () => {
     const workspace = strippedSource(WORKSPACE_PATH)
     expect(workspace).toContain("allocationSuccess")
     expect(workspace).toContain(
-      "formatMoney(allocationSuccess.allocatedTotalMinor)"
+       "formatMoney(allocationSuccess.allocatedTotalMinor, event.currency)"
     )
-    expect(workspace).toContain("formatMoney(allocationSuccess.leftoverMinor)")
+     expect(workspace).toContain("formatMoney(allocationSuccess.leftoverMinor, event.currency)")
   })
 
   it("both donation hosts mount both dialogs", () => {

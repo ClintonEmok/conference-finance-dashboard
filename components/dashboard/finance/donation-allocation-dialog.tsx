@@ -136,6 +136,7 @@ export type DonationAllocationDialogProps = {
   payerName: string
   // The list row's face value (`getStandaloneDonations`).
   amountMinor: number
+  currency: string
   /**
    * Optional initial targets for an order-launched session (Phase 61, D-02).
    * USED ONLY AS THE `targets` STATE INITIALIZER — never re-synced: the host
@@ -192,10 +193,12 @@ const DESTRUCTIVE_BAND =
 function QuoteFigure({
   label,
   valueMinor,
+  currency,
   tone,
 }: {
   label: string
   valueMinor: number
+  currency: string
   tone?: "primary" | "muted"
 }) {
   return (
@@ -208,7 +211,7 @@ function QuoteFigure({
           tone === "muted" && "font-normal text-muted-foreground"
         )}
       >
-        {formatMoney(valueMinor)}
+        {formatMoney(valueMinor, currency)}
       </span>
     </div>
   )
@@ -221,6 +224,7 @@ export function DonationAllocationDialog({
   eventId,
   payerName,
   amountMinor,
+  currency,
   initialTargets,
   onAllocated,
 }: DonationAllocationDialogProps) {
@@ -386,12 +390,12 @@ export function DonationAllocationDialog({
 
   const bandDonationMinor = summary ? summary.donationAmountMinor : amountMinor
   const bandAllocated = summary
-    ? formatMoney(summary.recordedAllocatedMinor)
+    ? formatMoney(summary.recordedAllocatedMinor, currency)
     : summaryUnavailable
       ? "Unavailable"
       : "Loading…"
   const bandRemaining = summary
-    ? formatMoney(summary.remainingMinor)
+    ? formatMoney(summary.remainingMinor, currency)
     : summaryUnavailable
       ? "Unavailable"
       : "Loading…"
@@ -477,7 +481,7 @@ export function DonationAllocationDialog({
     if (!quote || !request.ok || !keyState || isSubmitting) return
     setIsSubmitting(true)
     try {
-      const result: { allocatedTotalMinor: number } = await allocateDonation({
+      const result: { allocatedTotalMinor: number; leftoverMinor: number } = await allocateDonation({
         donationId,
         eventId,
         idempotencyKey: keyState.key,
@@ -492,7 +496,7 @@ export function DonationAllocationDialog({
       )
       onAllocated({
         allocatedTotalMinor: result.allocatedTotalMinor,
-        leftoverMinor: quote.leftoverMinor,
+        leftoverMinor: result.leftoverMinor,
       })
       onOpenChange(false)
     } catch (error) {
@@ -525,7 +529,7 @@ export function DonationAllocationDialog({
         <DialogHeader>
           <DialogTitle>Allocate donation</DialogTitle>
           <DialogDescription>
-            {`Allocate ${formatMoney(amountMinor)} from ${payerName}. The server prices every plan before anything is written.`}
+            {`Allocate ${formatMoney(amountMinor, currency)} from ${payerName}. The server prices every plan before anything is written.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -537,7 +541,7 @@ export function DonationAllocationDialog({
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <p className={UPPERCASE_LABEL}>Donation</p>
-              <p className={MONEY_FIGURE}>{formatMoney(bandDonationMinor)}</p>
+              <p className={MONEY_FIGURE}>{formatMoney(bandDonationMinor, currency)}</p>
             </div>
             <div className="space-y-1">
               <p className={UPPERCASE_LABEL}>Recorded allocated</p>
@@ -712,7 +716,7 @@ export function DonationAllocationDialog({
                               the enforcing bound stays the server's refusal. */}
                           {boundRow ? (
                             <p className="text-xs text-muted-foreground">
-                              {`Up to ${formatMoney(boundRow.effectiveCapacityMinor)}`}
+                              {`Up to ${formatMoney(boundRow.effectiveCapacityMinor, currency)}`}
                             </p>
                           ) : null}
                           {fieldError ? (
@@ -779,15 +783,18 @@ export function DonationAllocationDialog({
                             <QuoteFigure
                               label="Writable now"
                               valueMinor={row.effectiveCapacityMinor}
+                              currency={currency}
                               tone="primary"
                             />
                             <QuoteFigure
                               label="Will allocate"
                               valueMinor={row.amountMinor}
+                              currency={currency}
                             />
                             <QuoteFigure
                               label="Scope balance"
                               valueMinor={row.ceilingMinor}
+                              currency={currency}
                               tone="muted"
                             />
                             {row.effectiveCapacityMinor < row.ceilingMinor ? (
@@ -809,7 +816,7 @@ export function DonationAllocationDialog({
 
                 {quote.remainderMinor > 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    Rounding remainder: {formatMoney(quote.remainderMinor)} —
+                    Rounding remainder: {formatMoney(quote.remainderMinor, currency)} —
                     one minor unit each went to{" "}
                     {quote.remainderRecipientAttendeeIds.length}{" "}
                     {quote.remainderRecipientAttendeeIds.length === 1
@@ -824,7 +831,7 @@ export function DonationAllocationDialog({
                     <div className="flex items-center justify-between gap-2">
                       <span className={UPPERCASE_LABEL}>Cannot be placed</span>
                       <span className={MONEY_FIGURE}>
-                        {formatMoney(quote.leftoverMinor)}
+                        {formatMoney(quote.leftoverMinor, currency)}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -843,7 +850,7 @@ export function DonationAllocationDialog({
                   <div className="flex items-center justify-between gap-2">
                     <span className={UPPERCASE_LABEL}>Total allocated</span>
                     <span className={MONEY_FIGURE}>
-                      {formatMoney(quote.totalAllocatedMinor)}
+                      {formatMoney(quote.totalAllocatedMinor, currency)}
                     </span>
                   </div>
                   {/* `quote.remainingMinor` is the PRE-submission remainder and
@@ -855,7 +862,7 @@ export function DonationAllocationDialog({
                   <div className="flex items-center justify-between gap-2">
                     <span className={UPPERCASE_LABEL}>Leftover</span>
                     <span className={MONEY_FIGURE}>
-                      {formatMoney(quote.leftoverMinor)}
+                      {formatMoney(quote.leftoverMinor, currency)}
                     </span>
                   </div>
                 </div>

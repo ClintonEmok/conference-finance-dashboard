@@ -132,6 +132,7 @@ export type AttendeeDetail = {
   event: {
     id: string
     name: string | null
+    currency: string
   }
   order: {
     id: string
@@ -149,6 +150,7 @@ export type AttendeeDetail = {
     outstandingAmountMinor: number
     paidAmountMinor: number
     overpaidAmountMinor: number
+    paymentProgressPercent: number
     installmentProgress: {
       totalLinks: number
       paidLinks: number
@@ -334,6 +336,13 @@ export async function getAttendeeDetail(
     attendeeAmountDueMinor,
     attendeePaidAmountMinor
   )
+  const paymentProgressPercent =
+    attendeeAmountDueMinor === 0
+      ? 100
+      : Math.min(
+          100,
+          Math.round((balance.paidAmountMinor / attendeeAmountDueMinor) * 100)
+        )
 
   const paymentHistoryFromTikkie = paymentLinks.flatMap(
     (link: (typeof paymentLinks)[number]) => [
@@ -565,6 +574,7 @@ export async function getAttendeeDetail(
     event: {
       id: event._id,
       name: event.name,
+      currency: event.currency,
     },
     order: {
       id: order.id,
@@ -584,6 +594,7 @@ export async function getAttendeeDetail(
       outstandingAmountMinor: balance.outstandingAmountMinor,
       paidAmountMinor: balance.paidAmountMinor,
       overpaidAmountMinor: balance.overpaidAmountMinor,
+      paymentProgressPercent,
       installmentProgress: {
         totalLinks: paymentLinks.length,
         paidLinks: paymentLinks.filter(

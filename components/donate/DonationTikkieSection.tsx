@@ -12,12 +12,14 @@ interface DonationTikkieSectionProps {
   tikkieUrl: string
   eventName: string
   amountMinor: number
+  currency: string
 }
 
 export function DonationTikkieSection({
   tikkieUrl,
   eventName,
   amountMinor,
+  currency,
 }: DonationTikkieSectionProps) {
   const [copied, setCopied] = useState(false)
 
@@ -30,7 +32,7 @@ export function DonationTikkieSection({
   const amountLabel =
     amountMinor === 0
       ? "Give what you can — choose your own amount"
-      : formatMoney(amountMinor)
+       : formatMoney(amountMinor, currency)
 
   return (
     <Card className="overflow-hidden border-none bg-card/40 p-1 shadow-2xl backdrop-blur-xl ring-1 ring-border/50">
@@ -86,6 +88,7 @@ export function DonationTikkieSection({
                 <Button
                   variant="ghost"
                   size="icon"
+                  aria-label={copied ? "Copied donation link" : "Copy donation link"}
                   onClick={handleCopy}
                   className="h-8 w-8 shrink-0 rounded-lg hover:bg-primary/10"
                 >

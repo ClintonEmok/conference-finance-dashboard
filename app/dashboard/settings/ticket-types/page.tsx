@@ -23,6 +23,7 @@ import {
 type EventOption = {
   id: string
   name: string | null
+  currency: string
 }
 
 type TemplateDto = {
@@ -42,7 +43,7 @@ type TemplateSummary = {
   attendeeCount: number
 }
 
-import { formatMoney } from "@/lib/format"
+import { formatMoney, parseMinorUnitsInput } from "@/lib/format"
 
 type TemplateFormState = {
   ticketTypeLabel: string
@@ -75,7 +76,11 @@ export default function TicketTypesSettingsPage() {
   const isLoadingEvents = eventsData === undefined
   const events: EventOption[] = useMemo(() => {
     if (!eventsData) return []
-    return eventsData.map((e) => ({ id: e._id, name: e.title }))
+    return eventsData.map((e) => ({
+      id: e._id,
+      name: e.title,
+      currency: e.currency,
+    }))
   }, [eventsData])
 
   const uniqueEvents = useMemo(() => {
@@ -201,9 +206,24 @@ export default function TicketTypesSettingsPage() {
     setIsSubmitting(true)
     setFormError(null)
 
-    const euros = Number.parseFloat(formState.amountMinor)
-    if (isNaN(euros) || euros <= 0) {
-      setFormError("Please enter a valid positive amount in euros.")
+    const parsedAmount = parseMinorUnitsInput(formState.amountMinor)
+    if (!parsedAmount.ok) {
+      setFormError(
+        `Please enter a valid positive amount in ${selectedEvent?.currency ?? "the event currency"}.`
+      )
+      setIsSubmitting(false)
+      return
+    }
+
+    const expiryDays = Number(formState.expiryDays)
+    if (!Number.isInteger(expiryDays) || expiryDays < 1 || expiryDays > 365) {
+      setFormError("Expiry days must be a whole number between 1 and 365.")
+      setIsSubmitting(false)
+      return
+    }
+
+    if (!formState.descriptionTemplate.trim()) {
+      setFormError("Description is required.")
       setIsSubmitting(false)
       return
     }
@@ -212,9 +232,9 @@ export default function TicketTypesSettingsPage() {
       const payload = {
         eventId: selectedEventId,
         ticketTypeLabel: formState.ticketTypeLabel.trim(),
-        amountMinor: Math.round(euros * 100),
+        amountMinor: parsedAmount.amountMinor,
         descriptionTemplate: formState.descriptionTemplate.trim(),
-        expiryDays: formState.expiryDays ? Number(formState.expiryDays) : 14,
+        expiryDays,
         isActive: true,
       }
 
@@ -286,15 +306,20 @@ export default function TicketTypesSettingsPage() {
               No events found yet.
             </p>
           ) : (
-            <div className="rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
-              <p className="font-medium text-foreground">
-                {selectedEvent?.name ?? selectedEvent?.id ?? "Event"}
-              </p>
-              <p className="mt-1 text-muted-foreground">
-                Event switching is temporarily hidden while we stabilize this
-                page.
-              </p>
-            </div>
+            <label className="space-y-2 text-sm font-medium">
+              <span>Event</span>
+              <select
+                value={selectedEventId}
+                onChange={(event) => setSelectedEventId(event.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {uniqueEvents.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.name ?? event.id} ({event.currency})
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
         </CardContent>
       </Card>
@@ -341,7 +366,10 @@ export default function TicketTypesSettingsPage() {
                         <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                           <p>
                             <span className="font-medium text-foreground">
-                              {formatMoney(item.template.amountMinor)}
+                              {formatMoney(
+                                item.template.amountMinor,
+                                selectedEvent?.currency ?? "EUR"
+                              )}
                             </span>
                             {" · "}
                             Expires in {item.template.expiryDays} days
@@ -434,7 +462,7 @@ export default function TicketTypesSettingsPage() {
               >
                 <div className="space-y-2">
                   <label htmlFor="amountMinor" className="text-sm font-medium">
-                    Amount (in euros)
+                     Amount ({selectedEvent?.currency ?? "event currency"})
                   </label>
                   <input
                     id="amountMinor"
@@ -448,7 +476,7 @@ export default function TicketTypesSettingsPage() {
                         amountMinor: e.target.value,
                       }))
                     }
-                    placeholder="e.g. 25.00 for €25.00"
+                     placeholder={`e.g. 25.00 for ${selectedEvent?.currency ?? "EUR"} 25.00`}
                     required
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   />

@@ -2,7 +2,7 @@
 
 import { Component, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { useQuery } from "convex/react"
+import { useConvexAuth, useQuery } from "convex/react"
 
 import { Button } from "@/components/ui/button"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
@@ -203,14 +203,17 @@ function DonationDetailSurfaceInner({
   donationId: string
 }) {
   const { event } = useEventDashboard()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = isAuthenticated && !authLoading
 
   const isValidDonationId = DONATION_ID_PATTERN.test(donationId)
   const payment = usePaymentById(
     isValidDonationId ? (donationId as Id<"payments">) : null
   )
-  const income = useQuery(api.donations.getEventDonationIncome, {
-    eventId: event._id,
-  })
+  const income = useQuery(
+    api.donations.getEventDonationIncome,
+    canQuery ? { eventId: event._id } : "skip"
+  )
 
   const [allocationSuccess, setAllocationSuccess] = useState<{
     allocatedTotalMinor: number
@@ -231,9 +234,11 @@ function DonationDetailSurfaceInner({
   // The removal target's attendee name, resolved from the order the allocation
   // credited. An unresolved target falls back to the raw attendee id — never an
   // invented label (the record's own convention).
+  const removalOrderArgs =
+    removalTarget === null ? "skip" : { orderId: removalTarget.orderId }
   const removalOrder = useQuery(
     api.orders.getOrderWithAttendees,
-    removalTarget === null ? "skip" : { orderId: removalTarget.orderId }
+    canQuery ? removalOrderArgs : "skip"
   )
   const removalAttendeeName =
     removalTarget === null
@@ -338,6 +343,7 @@ function DonationDetailSurfaceInner({
         eventId={event._id}
         payerName={payment.payerName}
         amountMinor={payment.amountMinor}
+        currency={event.currency}
         source={payment.source}
         paidAt={payment.paidAt}
         notes={payment.notes ?? null}
@@ -378,8 +384,9 @@ function DonationDetailSurfaceInner({
           }}
           donationId={allocationTarget.donationId}
           eventId={event._id}
-          payerName={allocationTarget.payerName}
-          amountMinor={allocationTarget.amountMinor}
+           payerName={allocationTarget.payerName}
+           amountMinor={allocationTarget.amountMinor}
+           currency={event.currency}
           onAllocated={(result) => {
             setAllocationSuccess({
               allocatedTotalMinor: result.allocatedTotalMinor,

@@ -3,10 +3,22 @@ import type { StakeholderReport } from "@/lib/domain/finance/stakeholder-report"
 
 export function ReportSummary({ report }: { report: StakeholderReport }) {
   const cards = [
-    { label: "Amount Due", value: formatMoney(report.totals.amountDueMinor) },
-    { label: "Collected", value: formatMoney(report.totals.paidMinor) },
-    { label: "Outstanding", value: formatMoney(report.totals.outstandingMinor) },
-    { label: "Donation", value: formatMoney(report.totals.overpaidMinor) },
+    {
+      label: "Amount Due",
+      value: formatMoney(report.totals.amountDueMinor, report.event.currency),
+    },
+    {
+      label: "Collected",
+      value: formatMoney(report.totals.paidMinor, report.event.currency),
+    },
+    {
+      label: "Outstanding",
+      value: formatMoney(report.totals.outstandingMinor, report.event.currency),
+    },
+    {
+      label: "Donation",
+      value: formatMoney(report.totals.overpaidMinor, report.event.currency),
+    },
   ]
 
   return (

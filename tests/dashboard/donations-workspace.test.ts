@@ -185,9 +185,9 @@ describe("donations workspace — intent and row actions", () => {
     // the dialog's own result payload — no new money figure is introduced.
     expect(workspace).toMatch(/\{allocationSuccess !== null && \(/)
     expect(workspace).toMatch(
-      /formatMoney\(allocationSuccess\.allocatedTotalMinor\)/
+       /formatMoney\(allocationSuccess\.allocatedTotalMinor, event\.currency\)/
     )
-    expect(workspace).toMatch(/formatMoney\(allocationSuccess\.leftoverMinor\)/)
+     expect(workspace).toMatch(/formatMoney\(allocationSuccess\.leftoverMinor, event\.currency\)/)
     expect(workspace).toContain("Allocation recorded.")
     // Both bands are role="status" regions (the page-level announcement).
     expect(

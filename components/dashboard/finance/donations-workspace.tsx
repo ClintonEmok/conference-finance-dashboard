@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { usePaginatedQuery, useQuery } from "convex/react"
+import { useConvexAuth, usePaginatedQuery, useQuery } from "convex/react"
 import { Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -59,13 +59,16 @@ type DeleteTarget = {
 export function DonationsWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = isAuthenticated && !authLoading
 
-  const income = useQuery(api.donations.getEventDonationIncome, {
-    eventId: event._id,
-  })
+  const income = useQuery(
+    api.donations.getEventDonationIncome,
+    canQuery ? { eventId: event._id } : "skip"
+  )
   const donations = usePaginatedQuery(
     api.payments.getStandaloneDonations,
-    { eventId: event._id },
+    canQuery ? { eventId: event._id } : "skip",
     { initialNumItems: 50 }
   )
 
@@ -129,18 +132,18 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
           ) : (
             <>
               <span className="font-semibold">
-                Recorded total: {formatMoney(income.totals.donationsMinor)}
+                 Recorded total: {formatMoney(income.totals.donationsMinor, event.currency)}
               </span>
               <span className="text-muted-foreground">
                 {income.totals.donationCount} donation
                 {income.totals.donationCount === 1 ? "" : "s"}
               </span>
               <span className="text-muted-foreground">
-                Allocated: {formatMoney(income.totals.allocatedMinor)}
+                 Allocated: {formatMoney(income.totals.allocatedMinor, event.currency)}
               </span>
               <span className="text-muted-foreground">
                 Unallocated remainder:{" "}
-                {formatMoney(income.totals.unallocatedRemainderMinor)}
+                 {formatMoney(income.totals.unallocatedRemainderMinor, event.currency)}
               </span>
             </>
           )}
@@ -152,6 +155,7 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
           <DonationForm
             eventId={String(event._id)}
             eventTitle={event.title}
+            currency={event.currency}
             onSuccess={() => setShowForm(false)}
           />
         )}
@@ -168,8 +172,8 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
             className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
           >
             Allocation recorded.{" "}
-            {formatMoney(allocationSuccess.allocatedTotalMinor)} allocated;{" "}
-            {formatMoney(allocationSuccess.leftoverMinor)} left unallocated.
+             {formatMoney(allocationSuccess.allocatedTotalMinor, event.currency)} allocated;{" "}
+             {formatMoney(allocationSuccess.leftoverMinor, event.currency)} left unallocated.
           </div>
         )}
 
@@ -233,7 +237,7 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                           {row.payerName}
                         </TableCell>
                         <TableCell className="font-mono text-sm font-semibold text-primary tabular-nums">
-                          {formatMoney(row.amountMinor)}
+                           {formatMoney(row.amountMinor, event.currency)}
                         </TableCell>
                         <TableCell className="text-muted-foreground capitalize">
                           {row.source.replace("_", " ")}
@@ -242,10 +246,10 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                           {new Date(row.paidAt).toLocaleDateString()}
                         </TableCell>
                         <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                          {formatMoney(row.allocatedMinor)}
+                           {formatMoney(row.allocatedMinor, event.currency)}
                         </TableCell>
                         <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                          {formatMoney(row.unallocatedRemainderMinor)}
+                           {formatMoney(row.unallocatedRemainderMinor, event.currency)}
                         </TableCell>
                         <TableCell className="text-muted-foreground tabular-nums">
                           {allocationCount === undefined
@@ -357,6 +361,7 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
             eventId={event._id}
             payerName={allocationTarget.payerName}
             amountMinor={allocationTarget.amountMinor}
+            currency={event.currency}
             onAllocated={(result) => {
               setAllocationSuccess({
                 allocatedTotalMinor: result.allocatedTotalMinor,

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import Link from "next/link"
-import { useQuery } from "convex/react"
+import { useConvexAuth, useQuery } from "convex/react"
 import { ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -30,12 +30,17 @@ function toQueryState<T>(value: T | Error | undefined): AttentionQueryState<T> {
 
 export function PaymentsWorkspace({ slug }: { slug: string }) {
   const { event } = useEventDashboard()
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = isAuthenticated && !authLoading
 
-  const reconciliationResult = useQuery(api.orders.getOrdersForReconciliation, {
-    eventId: event._id,
-    limit: 250,
-  })
-  const unassignedPaymentsResult = useQuery(api.payments.getUnassignedPayments, {})
+  const reconciliationResult = useQuery(
+    api.orders.getOrdersForReconciliation,
+    canQuery ? { eventId: event._id, limit: 250 } : "skip"
+  )
+  const unassignedPaymentsResult = useQuery(
+    api.payments.getUnassignedPayments,
+    canQuery ? {} : "skip"
+  )
 
   const reconciliationState = toQueryState(
     reconciliationResult as

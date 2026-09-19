@@ -10,6 +10,7 @@ const event = {
   id: "event-1",
   slug: "spring-conference",
   title: "Spring Conference",
+  currency: "EUR",
   startsAt: Date.parse("2026-07-01T09:00:00.000Z"),
   accommodationEnabled: true,
 }

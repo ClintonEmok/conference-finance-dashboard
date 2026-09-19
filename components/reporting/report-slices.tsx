@@ -19,10 +19,12 @@ import type { StakeholderReport } from "@/lib/domain/finance/stakeholder-report"
 function SliceTable({
   title,
   description,
+  currency,
   rows,
 }: {
   title: string
   description: string
+  currency: string
   rows: Array<{
     label: string
     count: number
@@ -83,16 +85,16 @@ function SliceTable({
                       {row.count}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-foreground">
-                      {formatMoney(row.amountDueMinor)}
+                      {formatMoney(row.amountDueMinor, currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-foreground">
-                      {formatMoney(row.paidMinor)}
+                      {formatMoney(row.paidMinor, currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-foreground">
-                      {formatMoney(row.outstandingMinor)}
+                      {formatMoney(row.outstandingMinor, currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-foreground">
-                      {formatMoney(row.overpaidMinor)}
+                      {formatMoney(row.overpaidMinor, currency)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -102,16 +104,16 @@ function SliceTable({
                     {totals.count}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-foreground">
-                    {formatMoney(totals.amountDueMinor)}
+                    {formatMoney(totals.amountDueMinor, currency)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-foreground">
-                    {formatMoney(totals.paidMinor)}
+                    {formatMoney(totals.paidMinor, currency)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-foreground">
-                    {formatMoney(totals.outstandingMinor)}
+                    {formatMoney(totals.outstandingMinor, currency)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-foreground">
-                    {formatMoney(totals.overpaidMinor)}
+                    {formatMoney(totals.overpaidMinor, currency)}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -130,12 +132,14 @@ export function ReportSlices({ report, hideLocation }: { report: StakeholderRepo
         <SliceTable
           title="Location"
           description="Where the aggregate participants in this scope come from."
+          currency={report.event.currency}
           rows={report.slices.byLocation}
         />
       )}
       <SliceTable
         title="Gender"
         description="A stakeholder-friendly split without exposing individual records."
+        currency={report.event.currency}
         rows={report.slices.byGender}
       />
     </section>

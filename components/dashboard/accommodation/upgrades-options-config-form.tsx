@@ -146,15 +146,17 @@ function Feedback({
 export function UpgradesOptionsConfigForm({
   eventId,
   config,
+  currency,
 }: {
   eventId: Id<"events">
   config: EventConfigResponse
+  currency: string
 }) {
   return (
     <div className="min-w-0 space-y-5">
       <StayConfigSection eventId={eventId} config={config} />
-      <RateGridSection eventId={eventId} config={config} />
-      <OptionSection eventId={eventId} config={config} />
+      <RateGridSection eventId={eventId} config={config} currency={currency} />
+      <OptionSection eventId={eventId} config={config} currency={currency} />
       <AvailabilitySection eventId={eventId} config={config} />
     </div>
   )
@@ -348,9 +350,11 @@ function StayConfigSection({
 function RateGridSection({
   eventId,
   config,
+  currency,
 }: {
   eventId: Id<"events">
   config: EventConfigResponse
+  currency: string
 }) {
   const upsert = useUpsertEventAccommodationRate()
 
@@ -514,7 +518,7 @@ function RateGridSection({
                             />
                             <p className="text-xs text-muted-foreground">
                               {existing !== undefined
-                                ? `${formatMoney(existing.pricePerPersonMinor)} / person / night`
+                                 ? `${formatMoney(existing.pricePerPersonMinor, currency)} / person / night`
                                 : "Not configured"}
                             </p>
                           </div>
@@ -548,9 +552,11 @@ function RateGridSection({
 function OptionSection({
   eventId,
   config,
+  currency,
 }: {
   eventId: Id<"events">
   config: EventConfigResponse
+  currency: string
 }) {
   const upsert = useUpsertEventAccommodationOption()
   const options = config.options ?? []
@@ -584,9 +590,10 @@ function OptionSection({
               return configured ? (
                 <OptionCard
                   key={catalogOption._id}
-                  eventId={eventId}
-                  option={configured}
-                  upsert={upsert}
+                   eventId={eventId}
+                   option={configured}
+                   currency={currency}
+                   upsert={upsert}
                 />
               ) : (
                 <UnconfiguredOptionCard
@@ -607,10 +614,12 @@ function OptionSection({
 function OptionCard({
   eventId,
   option,
+  currency,
   upsert,
 }: {
   eventId: Id<"events">
   option: ConfigOption
+  currency: string
   upsert: ReturnType<typeof useUpsertEventAccommodationOption>
 }) {
   const [enabled, setEnabled] = useState(option.enabled)
@@ -696,7 +705,7 @@ function OptionCard({
             className="w-40 font-mono tabular-nums"
           />
           <span className="text-sm text-muted-foreground">
-            Current: {formatMoney(option.priceMinor)} / unit
+                             Current: {formatMoney(option.priceMinor, currency)} / unit
           </span>
         </div>
       </div>

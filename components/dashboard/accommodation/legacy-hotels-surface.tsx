@@ -11,6 +11,15 @@ import {
 
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Card,
   CardContent,
   CardDescription,
@@ -59,6 +68,7 @@ export default function EventAccommodationWorkspacePage({
   >(undefined)
   const [isAddingRooms, setIsAddingRooms] = useState(false)
   const [unlinkingHotelId, setUnlinkingHotelId] = useState<string | null>(null)
+  const [hotelToUnlink, setHotelToUnlink] = useState<Doc<"accommodationHotels"> | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
 
   const roomTypes = useRoomTypes()
@@ -69,7 +79,20 @@ export default function EventAccommodationWorkspacePage({
   const unlinkHotelFromEvent = useUnlinkHotelFromEvent()
   const selectedHotelForRooms = useHotelById(selectedHotelForRoomsId)
 
-  const handleUnlinkHotel = async (hotelId: string) => {
+  const requestUnlinkHotel = (hotelId: string) => {
+    const hotel = eventHotels?.find(
+      (candidate: Doc<"accommodationHotels">) => candidate._id === hotelId
+    )
+    if (hotel) {
+      setOperationError(null)
+      setHotelToUnlink(hotel)
+    }
+  }
+
+  const handleUnlinkHotel = async () => {
+    if (!hotelToUnlink) return
+
+    const hotelId = hotelToUnlink._id
     setUnlinkingHotelId(hotelId)
     setOperationError(null)
     try {
@@ -77,6 +100,7 @@ export default function EventAccommodationWorkspacePage({
         eventId: event._id,
         hotelId: hotelId as Id<"accommodationHotels">,
       })
+      setHotelToUnlink(null)
     } catch (err) {
       console.error("Failed to unlink hotel:", err)
       setOperationError(err instanceof Error ? err.message : "Failed to unlink hotel.")
@@ -255,7 +279,7 @@ export default function EventAccommodationWorkspacePage({
                 <LinkedHotelCard
                   key={hotel._id}
                   hotel={hotel}
-                  onUnlink={handleUnlinkHotel}
+                   onUnlink={requestUnlinkHotel}
                   isUnlinking={unlinkingHotelId === hotel._id}
                   onAddRooms={() => {
                     setSelectedHotelForRoomsId(hotel._id)
@@ -283,7 +307,48 @@ export default function EventAccommodationWorkspacePage({
         onSubmit={handleAddRoomsSubmit}
         isSubmitting={isAddingRooms}
       />
-      {operationError ? <p role="alert" aria-live="assertive" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{operationError}</p> : null}
+      <Dialog
+        open={hotelToUnlink !== null}
+        onOpenChange={(open) => {
+          if (!open && unlinkingHotelId === null) setHotelToUnlink(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Unlink this hotel?</DialogTitle>
+            <DialogDescription>
+              {hotelToUnlink
+                ? `Remove ${hotelToUnlink.name} from ${event.title}. Existing rooms and assignments are protected; the server will refuse this action while attendees are assigned.`
+              : null}
+            </DialogDescription>
+          </DialogHeader>
+          {operationError ? (
+            <p
+              role="alert"
+              aria-live="assertive"
+              className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {operationError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={unlinkingHotelId !== null}>
+                Keep hotel linked
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={unlinkingHotelId !== null}
+              onClick={() => void handleUnlinkHotel()}
+            >
+              {unlinkingHotelId !== null ? "Unlinking…" : "Unlink hotel"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {operationError && hotelToUnlink === null ? <p role="alert" aria-live="assertive" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{operationError}</p> : null}
     </div>
   )
 }

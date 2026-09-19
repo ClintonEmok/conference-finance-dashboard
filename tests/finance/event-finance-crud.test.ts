@@ -22,7 +22,8 @@ describe("event Finance destructive CRUD boundaries", () => {
       '(payment.source === "cash" || payment.source === "bank_transfer")'
     )
     expect(surface).toContain("payment.orderId === undefined")
-    expect(surface).toContain("window.confirm")
+    expect(surface).toContain("DialogTitle")
+    expect(surface).not.toContain("window.confirm")
     expect(surface).toContain("eventId: event._id")
     expect(hook).toContain("api.payments.deletePayment")
   })

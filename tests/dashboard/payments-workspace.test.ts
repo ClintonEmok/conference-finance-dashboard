@@ -93,7 +93,8 @@ describe("moved payments surface", () => {
 
   it("preserves the existing mark-donation and delete-payment behaviour", () => {
     expect(surface).toContain("useDeletePayment")
-    expect(surface).toContain("window.confirm")
+    expect(surface).toContain("DialogTitle")
+    expect(surface).not.toContain("window.confirm")
     expect(surface).toContain("useMarkPaymentAsDonation")
     expect(surface).toContain("Mark donation")
     expect(surface).toContain("Match order")

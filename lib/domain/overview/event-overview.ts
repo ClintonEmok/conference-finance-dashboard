@@ -22,6 +22,7 @@ export type OverviewInputs = {
     id: string
     slug: string
     title: string
+    currency: string
     startsAt: number | null
     accommodationEnabled: boolean
   }

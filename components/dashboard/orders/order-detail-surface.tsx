@@ -136,14 +136,11 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     api.emailActions.resendOrderConfirmation
   )
 
-  const [isRemoving, setIsRemoving] = useState(false)
-  const [removeErrorMessage, setRemoveErrorMessage] = useState<string | null>(
-    null
-  )
   const [isAssignSheetOpen, setIsAssignSheetOpen] = useState(false)
   const [isUnassigningId, setIsUnassigningId] = useState<string | null>(null)
   const [unassignError, setUnassignError] = useState<string | null>(null)
   const [isResendingEmail, setIsResendingEmail] = useState(false)
+  const [isResendDialogOpen, setIsResendDialogOpen] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [resendErrorMessage, setResendErrorMessage] = useState<string | null>(
     null
@@ -280,11 +277,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
 
   async function resendConfirmationEmail() {
     if (!orderId || !canResendConfirmation) return
-
-    const confirmed = window.confirm(
-      "Resend the booking confirmation email to this customer?"
-    )
-    if (!confirmed) return
+    setIsResendDialogOpen(false)
 
     setIsResendingEmail(true)
     setResendMessage(null)
@@ -364,39 +357,6 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     )
   }, [orderPayload])
 
-  async function removeOrderLocally() {
-    if (!orderId || !canDeleteOrder) return
-
-    const confirmed = window.confirm(
-      "Permanently delete this order? Attached payments will be unassigned and attendee records will be deleted. This cannot be undone."
-    )
-    if (!confirmed) return
-
-    setIsRemoving(true)
-    setRemoveErrorMessage(null)
-
-    try {
-      const response = await fetch(
-        `/api/dashboard/orders/${encodeURIComponent(orderId)}`,
-        { method: "DELETE" }
-      )
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: { message?: string }
-        } | null
-        setRemoveErrorMessage(body?.error?.message ?? "Failed to remove order.")
-        return
-      }
-
-      window.location.assign(`/dashboard/events/${slug}/orders`)
-    } catch {
-      setRemoveErrorMessage("Network error while removing order.")
-    } finally {
-      setIsRemoving(false)
-    }
-  }
-
   async function deleteOrder() {
     if (!orderId) return
 
@@ -454,13 +414,17 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
       <OrderSummaryPanel
         order={orderPayload.order}
         eventTitle={event.title}
+        currency={event.currency}
         slug={slug}
         metrics={metrics}
         hasAssignedPayments={hasAssignedPayments}
         canDeleteOrder={canDeleteOrder}
-        isRemoving={isRemoving}
-        removeErrorMessage={removeErrorMessage}
-        onRemoveOrder={() => void removeOrderLocally()}
+         isRemoving={isDeleting}
+         removeErrorMessage={deleteError}
+         onRemoveOrder={() => {
+           setDeleteError(null)
+           setIsDeleteDialogOpen(true)
+         }}
         actions={
           <OrderActionsPanel
             canResendConfirmation={canResendConfirmation}
@@ -468,6 +432,9 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
             resendMessage={resendMessage}
             resendErrorMessage={resendErrorMessage}
             onResendConfirmation={() => void resendConfirmationEmail()}
+            isResendDialogOpen={isResendDialogOpen}
+            onOpenResendDialog={() => setIsResendDialogOpen(true)}
+            onCloseResendDialog={() => setIsResendDialogOpen(false)}
             isDeleteDialogOpen={isDeleteDialogOpen}
             onOpenDeleteDialog={() => {
               setDeleteError(null)
@@ -496,8 +463,8 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
         >
           Allocation recorded.{" "}
-          {formatMoney(allocationSuccess.allocatedTotalMinor)} allocated;{" "}
-          {formatMoney(allocationSuccess.leftoverMinor)} left unallocated.
+           {formatMoney(allocationSuccess.allocatedTotalMinor, event.currency)} allocated;{" "}
+           {formatMoney(allocationSuccess.leftoverMinor, event.currency)} left unallocated.
         </div>
       )}
 
@@ -529,15 +496,17 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           }))}
           slug={slug}
           eventId={String(event?._id ?? "")}
-          orderId={orderId}
-          bookingRef={orderPayload.order.bookingRef}
-          onSaved={() => undefined}
+           orderId={orderId}
+           bookingRef={orderPayload.order.bookingRef}
+           currency={event.currency}
+           onSaved={() => undefined}
         />
 
         <PaymentsPanel
-          payments={payments}
-          allocations={allocationRows}
-          hasKnownDue={metrics.hasKnownDue}
+           payments={payments}
+           allocations={allocationRows}
+           currency={event.currency}
+           hasKnownDue={metrics.hasKnownDue}
           isUnassigningId={isUnassigningId}
           unassignError={unassignError}
           onOpenAssignSheet={() => setIsAssignSheetOpen(true)}
@@ -550,9 +519,10 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           open={isAssignSheetOpen}
           onOpenChange={setIsAssignSheetOpen}
           orderId={orderId}
-          outstandingAmountMinor={metrics.outstandingAmountMinor}
-          bookerName={orderPayload?.order.bookerName ?? undefined}
-        />
+           outstandingAmountMinor={metrics.outstandingAmountMinor}
+           bookerName={orderPayload?.order.bookerName ?? undefined}
+           currency={event.currency}
+         />
       )}
 
       <MergeOrderDialog
@@ -561,12 +531,14 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
         orderId={orderId}
         slug={slug}
         eventId={String(event?._id ?? "")}
+        currency={event.currency}
       />
 
       <AllocateDonationToOrder
         open={isAllocateChooserOpen}
         onOpenChange={setIsAllocateChooserOpen}
         eventId={event._id}
+        currency={event.currency}
         onSelect={(donation) => {
           setIsAllocateChooserOpen(false)
           setAllocationSuccess(null)
@@ -585,6 +557,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           eventId={event._id}
           payerName={allocationDonation.payerName}
           amountMinor={allocationDonation.amountMinor}
+          currency={event.currency}
           initialTargets={orderTargets}
           onAllocated={(result) => {
             setAllocationSuccess(result)

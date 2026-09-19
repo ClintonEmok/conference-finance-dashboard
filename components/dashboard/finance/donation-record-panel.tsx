@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useConvex, useQuery } from "convex/react"
+import { useConvex, useConvexAuth, useQuery } from "convex/react"
 
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -77,6 +77,7 @@ export type DonationRecordPanelProps = {
   eventId: Id<"events">
   payerName: string
   amountMinor: number
+  currency: string
   source: "cash" | "bank_transfer" | "tikkie"
   paidAt: number
   notes: string | null
@@ -135,9 +136,13 @@ function AllocationTargetLabel({
   orderId: string
   attendeeId: string
 }) {
-  const order = useQuery(api.orders.getOrderWithAttendees, {
-    orderId: orderId as Id<"orders">,
-  })
+  const { isAuthenticated, isLoading } = useConvexAuth()
+  const order = useQuery(
+    api.orders.getOrderWithAttendees,
+    isAuthenticated && !isLoading
+      ? { orderId: orderId as Id<"orders"> }
+      : "skip"
+  )
   const attendee = order?.attendees.find(
     (entry) => String(entry.id) === attendeeId
   )
@@ -162,7 +167,13 @@ function AllocationTargetLabel({
  * `exceedsCapacity` the order bound, and a non-zero `unappliedMinor` renders
  * the figure itself.
  */
-function AllocationRowBands({ row }: { row: DonationAllocationSummaryRow }) {
+function AllocationRowBands({
+  row,
+  currency,
+}: {
+  row: DonationAllocationSummaryRow
+  currency: string
+}) {
   return (
     <>
       {row.exceedsCeiling === true && (
@@ -177,7 +188,7 @@ function AllocationRowBands({ row }: { row: DonationAllocationSummaryRow }) {
       )}
       {row.unappliedMinor > 0 && (
         <p className="mt-1 text-xs text-muted-foreground">
-          {formatMoney(row.unappliedMinor)} is not credited.
+           {formatMoney(row.unappliedMinor, currency)} is not credited.
         </p>
       )}
     </>
@@ -188,6 +199,7 @@ export function DonationRecordPanel({
   donationId,
   payerName,
   amountMinor,
+  currency,
   source,
   paidAt,
   notes,
@@ -292,25 +304,25 @@ export function DonationRecordPanel({
                   orderId={row.orderId}
                   attendeeId={row.attendeeId}
                 />
-                <AllocationRowBands row={row} />
+                 <AllocationRowBands row={row} currency={currency} />
               </TableCell>
               <TableCell>
                 <Badge variant="outline">{scopeLabel(row.scope)}</Badge>
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                {formatMoney(row.scopeOutstandingMinor)}
+                 {formatMoney(row.scopeOutstandingMinor, currency)}
               </TableCell>
               <TableCell className="font-mono text-sm font-semibold text-primary tabular-nums">
-                {formatMoney(row.effectiveCapacityMinor)}
+                 {formatMoney(row.effectiveCapacityMinor, currency)}
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                {formatMoney(row.amountMinor)}
+                 {formatMoney(row.amountMinor, currency)}
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                {formatMoney(row.appliedMinor)}
+                 {formatMoney(row.appliedMinor, currency)}
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground tabular-nums">
-                {formatMoney(row.unappliedMinor)}
+                 {formatMoney(row.unappliedMinor, currency)}
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {new Date(row.createdAt).toLocaleDateString()}
@@ -366,8 +378,8 @@ export function DonationRecordPanel({
             className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
           >
             Allocation recorded.{" "}
-            {formatMoney(allocationSuccess.allocatedTotalMinor)} allocated;{" "}
-            {formatMoney(allocationSuccess.leftoverMinor)} left unallocated.
+             {formatMoney(allocationSuccess.allocatedTotalMinor, currency)} allocated;{" "}
+             {formatMoney(allocationSuccess.leftoverMinor, currency)} left unallocated.
           </div>
         )}
 
@@ -407,13 +419,13 @@ export function DonationRecordPanel({
         {summary !== null && (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
             <span className="font-semibold">
-              Donation: {formatMoney(summary.donationAmountMinor)}
+               Donation: {formatMoney(summary.donationAmountMinor, currency)}
             </span>
             <span className="text-muted-foreground">
-              Allocated: {formatMoney(summary.recordedAllocatedMinor)}
+               Allocated: {formatMoney(summary.recordedAllocatedMinor, currency)}
             </span>
             <span className="text-muted-foreground">
-              Remaining: {formatMoney(summary.remainingMinor)}
+               Remaining: {formatMoney(summary.remainingMinor, currency)}
             </span>
           </div>
         )}

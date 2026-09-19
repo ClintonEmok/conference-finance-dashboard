@@ -686,6 +686,7 @@ export function SignupFlowShell({ slug }: SignupFlowShellProps) {
                   <div className="space-y-6">
                     <TicketStep
                       ticketSelections={effectiveTicketSelections}
+                      currency={activeEvent.currency}
                       onChange={handleTicketSelectionsChange}
                     />
                     {totalSelectedTickets <= 0 && (

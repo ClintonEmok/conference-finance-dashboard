@@ -207,6 +207,7 @@ export function DonationAllocationAttendeePicker({
               >
                 <input
                   type="checkbox"
+                  aria-label={`${checked ? "Deselect" : "Select"} ${row.name}`}
                   checked={checked}
                   disabled={disabled}
                   onChange={() =>

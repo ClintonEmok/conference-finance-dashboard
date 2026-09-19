@@ -26,7 +26,10 @@ export default async function DonatePage({ params }: DonatePageProps) {
 
   const event = await fetchQuery(api.events.getEventBySlug, { slug: eventSlug })
 
-  if (!event) {
+  // `getEventBySlug` is shared with the operator dashboard, which must see
+  // drafts, so the public gate lives here. `isPublished` only — a published
+  // event whose signup has closed must still accept donations.
+  if (!event || !event.isPublished) {
     notFound()
   }
 
@@ -56,6 +59,7 @@ export default async function DonatePage({ params }: DonatePageProps) {
                 tikkieUrl={donationData.paymentUrl}
                 eventName={event.title}
                 amountMinor={donationData.amountMinor ?? 0}
+                currency={event.currency}
               />
             </div>
           ) : (

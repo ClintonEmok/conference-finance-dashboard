@@ -148,6 +148,7 @@ export function PublicReportView({
               <ReportLocationDetail
                 groups={report.locationGroups}
                 generatedAt={report.attendees?.generatedAt ?? report.aggregate?.generatedAt ?? report.regionAggregate?.generatedAt ?? ""}
+                currency={report.event.currency}
               />
             )}
           </div>

@@ -26,6 +26,7 @@ type MergeOrderDialogProps = {
   orderId: string
   slug: string
   eventId: string
+  currency: string
 }
 
 function formatDateTime(value: string | null) {
@@ -47,6 +48,7 @@ export function MergeOrderDialog({
   orderId,
   slug,
   eventId,
+  currency,
 }: MergeOrderDialogProps) {
   const [mergeSearch, setMergeSearch] = useState("")
   const [debouncedMergeSearch, setDebouncedMergeSearch] = useState("")
@@ -214,7 +216,7 @@ export function MergeOrderDialog({
                     <div className="ml-3 shrink-0 text-right">
                       <p className="text-xs font-black tabular-nums">
                         {typeof result.totalAmountMinor === "number"
-                          ? formatMoney(result.totalAmountMinor)
+                           ? formatMoney(result.totalAmountMinor, currency)
                           : "Unavailable"}
                       </p>
                       <p className="text-[9px] text-muted-foreground">
@@ -287,7 +289,7 @@ export function MergeOrderDialog({
                         <div className="ml-3 shrink-0 text-right">
                           <p className="text-xs font-black tabular-nums">
                             {typeof result.totalAmountMinor === "number"
-                              ? formatMoney(result.totalAmountMinor)
+                               ? formatMoney(result.totalAmountMinor, currency)
                               : "Unavailable"}
                           </p>
                           <p className="text-[9px] text-muted-foreground">

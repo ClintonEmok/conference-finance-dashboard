@@ -139,10 +139,10 @@ describe("donation record — the moved pins, in full (DACC-04 + effective capac
     const scopeHeaderIndex = record.indexOf("Scope balance</TableHead>")
     const writableHeaderIndex = record.indexOf("Writable now</TableHead>")
     const scopeCellIndex = record.indexOf(
-      "formatMoney(row.scopeOutstandingMinor)"
+       "formatMoney(row.scopeOutstandingMinor, currency)"
     )
     const writableCellIndex = record.indexOf(
-      "formatMoney(row.effectiveCapacityMinor)"
+       "formatMoney(row.effectiveCapacityMinor, currency)"
     )
 
     expect(scopeHeaderIndex).toBeGreaterThan(-1)

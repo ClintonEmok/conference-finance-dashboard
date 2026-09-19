@@ -59,6 +59,7 @@ export type OrderAllocationRow = {
 type PaymentsPanelProps = {
   payments: OrderPaymentRow[]
   allocations: OrderAllocationRow[]
+  currency: string
   hasKnownDue: boolean
   isUnassigningId: string | null
   unassignError: string | null
@@ -99,6 +100,7 @@ function paymentStatusVariant(status: PaymentStatus) {
 export function PaymentsPanel({
   payments,
   allocations,
+  currency,
   hasKnownDue,
   isUnassigningId,
   unassignError,
@@ -155,7 +157,7 @@ export function PaymentsPanel({
                   </div>
                   <div className="space-y-1 text-right">
                     <p className="text-sm font-black text-foreground tabular-nums">
-                      {formatMoney(payment.amountMinor)}
+                      {formatMoney(payment.amountMinor, currency)}
                     </p>
                     <Badge
                       variant={paymentStatusVariant(payment.status)}
@@ -227,7 +229,7 @@ export function PaymentsPanel({
                   </div>
                   <div className="space-y-1 text-right">
                     <p className="text-sm font-black text-foreground tabular-nums">
-                      {formatMoney(allocation.amountMinor)}
+                      {formatMoney(allocation.amountMinor, currency)}
                     </p>
                   </div>
                 </div>

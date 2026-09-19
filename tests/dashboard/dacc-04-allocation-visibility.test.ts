@@ -70,17 +70,21 @@ describe("order view panel — labelled server figures, no order-level total", (
   it("renders the two labelled figures verbatim from the attendee row", () => {
     expect(panel).toContain("<span>Allocated credit</span>")
     expect(panel).toContain("<span>Remaining</span>")
-    expect(panel).toContain("formatMoney(attendee.paidAmountMinor)")
-    expect(panel).toContain("formatMoney(attendee.outstandingAmountMinor)")
+    expect(panel).toContain("formatMoney(attendee.paidAmountMinor, currency)")
+    expect(panel).toContain(
+      "formatMoney(attendee.outstandingAmountMinor, currency)"
+    )
   })
 
   it("keeps the due figure first and the figures then the link in bound order", () => {
-    const dueIndex = panel.indexOf("formatMoney(attendee.amountDueMinor)")
+    const dueIndex = panel.indexOf(
+      "formatMoney(attendee.amountDueMinor, currency)"
+    )
     const allocatedIndex = panel.indexOf(
-      "formatMoney(attendee.paidAmountMinor)"
+      "formatMoney(attendee.paidAmountMinor, currency)"
     )
     const remainingIndex = panel.indexOf(
-      "formatMoney(attendee.outstandingAmountMinor)"
+      "formatMoney(attendee.outstandingAmountMinor, currency)"
     )
     const linkIndex = panel.indexOf("donationsHref(slug, { orderId })")
 
@@ -119,7 +123,9 @@ describe("order view panel — labelled server figures, no order-level total", (
 describe("attendee view — the label on the existing figure and the link", () => {
   it("captions the existing paid stat card from the server payload", () => {
     expect(attendee).toContain("Allocated credit")
-    expect(attendee).toContain("formatMoney(payload.finance.paidAmountMinor)")
+    expect(attendee).toContain(
+      "formatMoney(payload.finance.paidAmountMinor, payload.event.currency)"
+    )
     // The caption is real markup (a comment alone must not satisfy the label
     // pins) attached to the Amount Paid card's own conditional.
     expect(attendee).toMatch(
@@ -143,15 +149,17 @@ describe("attendee view — the label on the existing figure and the link", () =
     const paidEntry = statArray.slice(paidEntryStart, outstandingEntryStart)
     const outstandingEntry = statArray.slice(outstandingEntryStart)
 
-    expect(paidEntry).toContain("formatMoney(payload.finance.paidAmountMinor)")
+    expect(paidEntry).toContain(
+      "formatMoney(payload.finance.paidAmountMinor, payload.event.currency)"
+    )
     expect(paidEntry).not.toContain(
-      "formatMoney(payload.finance.outstandingAmountMinor)"
+      "formatMoney(payload.finance.outstandingAmountMinor, payload.event.currency)"
     )
     expect(outstandingEntry).toContain(
-      "formatMoney(payload.finance.outstandingAmountMinor)"
+      "formatMoney(payload.finance.outstandingAmountMinor, payload.event.currency)"
     )
     expect(outstandingEntry).not.toContain(
-      "formatMoney(payload.finance.paidAmountMinor)"
+      "formatMoney(payload.finance.paidAmountMinor, payload.event.currency)"
     )
 
     // The caption renders inside the mapped card (after the stat array) and is

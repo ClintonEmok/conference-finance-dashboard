@@ -53,6 +53,7 @@ export function AddRoomsDialog({
   isSubmitting,
 }: AddRoomsDialogProps) {
   const [currentStep, setCurrentStep] = useState<Step>("roomTypes")
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Room type state
   const [selectedRoomTypes, setSelectedRoomTypes] = useState<RoomTypeConfig[]>(
@@ -69,6 +70,7 @@ export function AddRoomsDialog({
       setSelectedRoomTypes([])
       setNewRoomTypeLabel("")
       setNewRoomTypeCapacity("2")
+      setSubmitError(null)
     }, 200)
   }
 
@@ -103,16 +105,27 @@ export function AddRoomsDialog({
   const handleSubmit = async () => {
     if (!hotel) return
 
-    await onSubmit({
-      hotelId: hotel._id,
-      roomTypes: selectedRoomTypes.map((rt) => ({
-        id: rt.id,
-        label: rt.label,
-        capacity: rt.capacity,
-        roomCount: rt.roomCount,
-      })),
-    })
-    handleClose()
+    setSubmitError(null)
+    try {
+      await onSubmit({
+        hotelId: hotel._id,
+        roomTypes: selectedRoomTypes.map((rt) => ({
+          id: rt.id,
+          label: rt.label,
+          capacity: rt.capacity,
+          roomCount: rt.roomCount,
+        })),
+      })
+      handleClose()
+    } catch (err) {
+      // The page handler rethrows, so without this the dialog stayed open with
+      // no message and its page-level error rendered behind the modal.
+      setSubmitError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not add the rooms. Please try again."
+      )
+    }
   }
 
   const addExistingRoomType = (roomTypeId: string) => {
@@ -185,7 +198,13 @@ export function AddRoomsDialog({
   if (!hotel) return null
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && isSubmitting) return
+        handleClose()
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -453,6 +472,16 @@ export function AddRoomsDialog({
             </div>
           )}
         </div>
+
+        {submitError ? (
+          <p
+            role="alert"
+            aria-live="assertive"
+            className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm font-medium text-destructive"
+          >
+            {submitError}
+          </p>
+        ) : null}
 
         <DialogFooter className="flex justify-between">
           <Button

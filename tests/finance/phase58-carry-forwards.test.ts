@@ -60,7 +60,7 @@ describe("phase 58 carry-forwards (phase 56 verification findings)", () => {
         expect(
           surface,
           `${field} must render straight from the server payload — no client-side derivation`
-        ).toContain(`formatMoney(revenue.data.totals.${field})`)
+        ).toContain(`formatMoney(revenue.data.totals.${field}, event.currency)`)
       }
     })
 

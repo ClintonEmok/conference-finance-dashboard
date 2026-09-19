@@ -166,7 +166,7 @@ describe("the allocation rows render in the order's transaction list (D-07)", ()
     const allocationBlock = sliceFrom(panelCode, "allocations.map(", "))}")
     for (const literal of [
       "Donation allocation",
-      "formatMoney(allocation.amountMinor)",
+      "formatMoney(allocation.amountMinor, currency)",
       "scopeLabel(allocation.scope)",
       "formatDateTime(allocation.recordedAt)",
       "allocation.attendeeName",

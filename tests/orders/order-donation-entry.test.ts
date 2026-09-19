@@ -184,9 +184,11 @@ describe("the order entry — action, chooser and shared editor", () => {
   it("renders the dialog's own allocation result as the status band", () => {
     expect(surface).toContain('role="status"')
     expect(surface).toMatch(
-      /formatMoney\(allocationSuccess\.allocatedTotalMinor\)/
+      /formatMoney\(allocationSuccess\.allocatedTotalMinor, event\.currency\)/
     )
-    expect(surface).toMatch(/formatMoney\(allocationSuccess\.leftoverMinor\)/)
+    expect(surface).toMatch(
+      /formatMoney\(allocationSuccess\.leftoverMinor, event\.currency\)/
+    )
   })
 })
 
@@ -218,8 +220,12 @@ describe("the chooser is an entry point only", () => {
   it("reads the event donation-income projection and lists only remainders", () => {
     expect(chooser).toContain("getEventDonationIncome")
     expect(chooser).toMatch(/unallocatedRemainderMinor\s*>\s*0/)
-    expect(chooser).toContain("formatMoney(donation.donationAmountMinor)")
-    expect(chooser).toContain("formatMoney(donation.unallocatedRemainderMinor)")
+    expect(chooser).toContain(
+      "formatMoney(donation.donationAmountMinor, currency)"
+    )
+    expect(chooser).toContain(
+      "formatMoney(donation.unallocatedRemainderMinor, currency)"
+    )
     expect(chooser).toContain("No donations with an unallocated remainder.")
     expect(chooser).toContain("onSelect(")
     expect(chooser).toContain("Choose")

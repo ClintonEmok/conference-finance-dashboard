@@ -8,10 +8,20 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { PaymentCard } from "@/components/payments/payment-card"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import type { Doc } from "@/convex/_generated/dataModel"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import { reconciliationHref } from "@/lib/dashboard/workspace-routes"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
+import { formatMoney } from "@/lib/format"
 import {
   useDeletePayment,
   useMarkPaymentAsDonation,
@@ -47,21 +57,25 @@ export default function EventPaymentsPage({
   const [successPaymentId, setSuccessPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [deletedPaymentId, setDeletedPaymentId] = useState<PaymentRow["_id"] | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [confirmation, setConfirmation] = useState<{
+    action: "donation" | "delete"
+    payment: PaymentRow
+  } | null>(null)
 
-  async function handleMarkDonation(paymentId: PaymentRow["_id"]) {
+  async function handleMarkDonation(payment: PaymentRow) {
     if (!event?._id) return
 
-    setBusyPaymentId(paymentId)
+    setBusyPaymentId(payment._id)
     setErrorMessage(null)
     setSuccessPaymentId(null)
     setDeletedPaymentId(null)
 
     try {
       await markAsDonation({
-        paymentId,
+        paymentId: payment._id,
         eventId: event._id,
       })
-      setSuccessPaymentId(paymentId)
+      setSuccessPaymentId(payment._id)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to mark donation")
     } finally {
@@ -79,11 +93,6 @@ export default function EventPaymentsPage({
     ) {
       return
     }
-
-    const confirmed = window.confirm(
-      `Delete this ${payment.source === "cash" ? "cash" : "bank transfer"} payment of ${payment.amountMinor} minor units? This cannot be undone.`
-    )
-    if (!confirmed) return
 
     setBusyPaymentId(payment._id)
     setErrorMessage(null)
@@ -121,7 +130,8 @@ export default function EventPaymentsPage({
   const pendingDonations = unassignedState.data
 
   return (
-    <div className="min-w-0 space-y-6">
+    <>
+      <div className="min-w-0 space-y-6">
       {errorMessage && (
         <div role="alert" aria-live="assertive" className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive">
           {errorMessage}
@@ -166,12 +176,13 @@ export default function EventPaymentsPage({
                 <PaymentCard
                   key={payment._id}
                   payment={payment}
+                  currency={event.currency}
                   actions={
                     <>
                       <Button
                         size="sm"
                         className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                        onClick={() => void handleMarkDonation(payment._id)}
+                        onClick={() => setConfirmation({ action: "donation", payment })}
                         disabled={busyPaymentId === payment._id}
                       >
                         {busyPaymentId === payment._id ? (
@@ -202,10 +213,11 @@ export default function EventPaymentsPage({
               <DashboardQueryState state="empty" message="No payments linked yet." className="rounded-2xl border border-dashed border-border/50 bg-background/40 p-6" />
             ) : (
                linkedPayments.map((payment) => (
-                 <PaymentCard
-                   key={payment._id}
-                   payment={payment}
-                   orderLink={payment.orderId ?? undefined}
+                  <PaymentCard
+                    key={payment._id}
+                    payment={payment}
+                    currency={event.currency}
+                    orderLink={payment.orderId ?? undefined}
                    actions={
                      payment.eventId === event._id &&
                      payment.status === "unassigned" &&
@@ -217,7 +229,7 @@ export default function EventPaymentsPage({
                          variant="destructive"
                          size="sm"
                          className="h-8 rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                         onClick={() => void handleDeletePayment(payment)}
+                          onClick={() => setConfirmation({ action: "delete", payment })}
                          disabled={busyPaymentId === payment._id}
                        >
                          {busyPaymentId === payment._id ? (
@@ -235,6 +247,50 @@ export default function EventPaymentsPage({
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+
+      <Dialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && busyPaymentId === null) setConfirmation(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmation?.action === "donation"
+                ? "Mark payment as a donation?"
+                : "Delete this payment?"}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmation?.action === "donation"
+                 ? `Mark the ${formatMoney(confirmation.payment.amountMinor, event.currency)} payment from ${confirmation.payment.payerName || "this payer"} as a standalone donation? It will leave the Payments list.`
+                : `Delete this ${confirmation?.payment.source === "cash" ? "cash" : "bank transfer"} payment? This cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={busyPaymentId !== null}>
+                Keep payment
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant={confirmation?.action === "delete" ? "destructive" : "default"}
+              disabled={busyPaymentId !== null}
+              onClick={() => {
+                if (!confirmation) return
+                const next = confirmation
+                setConfirmation(null)
+                if (next.action === "donation") void handleMarkDonation(next.payment)
+                else void handleDeletePayment(next.payment)
+              }}
+            >
+              {confirmation?.action === "donation" ? "Mark donation" : "Delete payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

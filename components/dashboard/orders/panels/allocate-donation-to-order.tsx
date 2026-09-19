@@ -40,6 +40,7 @@ type AllocateDonationToOrderProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   eventId: Id<"events">
+  currency: string
   onSelect: (donation: AllocateDonationChoice) => void
 }
 
@@ -47,6 +48,7 @@ export function AllocateDonationToOrder({
   open,
   onOpenChange,
   eventId,
+  currency,
   onSelect,
 }: AllocateDonationToOrderProps) {
   const income = useQuery(api.donations.getEventDonationIncome, { eventId })
@@ -90,7 +92,7 @@ export function AllocateDonationToOrder({
                     {donation.payerName}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {`Donation ${formatMoney(donation.donationAmountMinor)} · Unallocated remainder ${formatMoney(donation.unallocatedRemainderMinor)}`}
+                    {`Donation ${formatMoney(donation.donationAmountMinor, currency)} · Unallocated remainder ${formatMoney(donation.unallocatedRemainderMinor, currency)}`}
                   </p>
                 </div>
                 <Button

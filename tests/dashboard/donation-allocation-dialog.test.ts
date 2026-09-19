@@ -75,14 +75,14 @@ describe("the writable-leading ladder (LOCKED effective-capacity rule)", () => {
     expect(dialog).toMatch(
       /label="Writable now"[\s\S]{0,120}valueMinor=\{row\.effectiveCapacityMinor\}/
     )
-    expect(dialog).toMatch(/label="Writable now"[\s\S]{0,120}tone="primary"/)
+    expect(dialog).toMatch(/label="Writable now"[\s\S]{0,200}tone="primary"/)
     expect(dialog).toMatch(
       /label="Will allocate"[\s\S]{0,120}valueMinor=\{row\.amountMinor\}/
     )
     expect(dialog).toMatch(
       /label="Scope balance"[\s\S]{0,120}valueMinor=\{row\.ceilingMinor\}/
     )
-    expect(dialog).toMatch(/label="Scope balance"[\s\S]{0,120}tone="muted"/)
+    expect(dialog).toMatch(/label="Scope balance"[\s\S]{0,200}tone="muted"/)
   })
 
   it("demotes the bare ceiling: never the headline, never the primary tone", () => {
@@ -129,7 +129,7 @@ describe("the writable-leading ladder (LOCKED effective-capacity rule)", () => {
       dialog,
       "the remainder band must render formatMoney(quote.remainderMinor), never the leftover"
     ).toMatch(
-      /Rounding remainder:[\s\S]{0,80}formatMoney\(quote\.remainderMinor\)/
+      /Rounding remainder:[\s\S]{0,80}formatMoney\(quote\.remainderMinor, currency\)/
     )
     expect(
       dialog,

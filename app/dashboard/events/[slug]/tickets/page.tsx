@@ -27,6 +27,7 @@ import {
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
+import { formatMoney, parseMinorUnitsInput } from "@/lib/format"
 
 function reorderItems(items: string[], fromIndex: number, toIndex: number) {
   const next = [...items]
@@ -82,7 +83,7 @@ function TicketTypeRow({
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            {eventCurrency} {(ticket.priceMinor / 100).toFixed(2)}
+             {formatMoney(ticket.priceMinor, eventCurrency)}
             {ticket.maxQuantity && (
               <span className="ml-2">
                 · {ticket.maxQuantity - (ticket.soldCount || 0)} of{" "}
@@ -93,12 +94,18 @@ function TicketTypeRow({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => onEdit(ticket)}>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Edit ${ticket.label}`}
+          onClick={() => onEdit(ticket)}
+        >
           <Edit className="size-4" />
         </Button>
         <Button
           variant="outline"
           size="sm"
+          aria-label={`Delete ${ticket.label}`}
           className="text-destructive hover:bg-destructive/10"
           onClick={() => onDelete(ticket._id)}
         >
@@ -119,6 +126,7 @@ export default function EventTicketsPage({
   
   // State from old monolithic page
   const [isAddingTicket, setIsAddingTicket] = useState(false)
+  const [ticketError, setTicketError] = useState<string | null>(null)
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null)
   const [ticketLabel, setTicketLabel] = useState("")
   const [ticketPrice, setTicketPrice] = useState("")
@@ -130,6 +138,7 @@ export default function EventTicketsPage({
   const [ticketRoomTypeId, setTicketRoomTypeId] =
     useState<Id<"accommodationRoomTypes"> | null>(null)
   const [ticketOrder, setTicketOrder] = useState<string[]>([])
+  const [isMutating, setIsMutating] = useState(false)
 
   const ticketTypes = useTicketTypesForEvent(event?._id)
   const roomTypes = useRoomTypes()
@@ -156,14 +165,44 @@ export default function EventTicketsPage({
 
   if (!event) return null
 
+  const readTicketForm = () => {
+    if (!ticketLabel.trim()) {
+      setTicketError("Ticket name is required.")
+      return null
+    }
+
+    const parsedPrice = parseMinorUnitsInput(ticketPrice)
+    if (!parsedPrice.ok) {
+      setTicketError(`Enter a valid positive ticket price in ${event.currency}.`)
+      return null
+    }
+
+    const maxQuantity = ticketQuantity.trim()
+      ? Number(ticketQuantity)
+      : undefined
+    if (
+      maxQuantity !== undefined &&
+      (!Number.isInteger(maxQuantity) || maxQuantity < 0)
+    ) {
+      setTicketError("Quantity must be a whole number of zero or more.")
+      return null
+    }
+
+    return { priceMinor: parsedPrice.amountMinor, maxQuantity }
+  }
+
   const handleAddTicket = async () => {
-    if (!event || !ticketLabel.trim() || !ticketPrice) return
+    if (!event || isMutating) return
+    setTicketError(null)
+    const form = readTicketForm()
+    if (!form) return
+    setIsMutating(true)
     try {
       await createTicketType({
         eventId: event._id,
         label: ticketLabel.trim(),
-        priceMinor: Math.round(parseFloat(ticketPrice) * 100),
-        maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
+        priceMinor: form.priceMinor,
+        maxQuantity: form.maxQuantity,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
         roomTypeId: ticketRoomTypeId ?? undefined,
@@ -171,17 +210,28 @@ export default function EventTicketsPage({
       cancelTicketEdit()
     } catch (err) {
       console.error("Failed to create ticket:", err)
+      setTicketError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not create the ticket type. Please try again."
+      )
+    } finally {
+      setIsMutating(false)
     }
   }
 
   const handleUpdateTicket = async () => {
-    if (!editingTicketId || !ticketLabel.trim() || !ticketPrice) return
+    if (!editingTicketId || isMutating) return
+    setTicketError(null)
+    const form = readTicketForm()
+    if (!form) return
+    setIsMutating(true)
     try {
       await updateTicketType({
         ticketTypeId: editingTicketId as any,
         label: ticketLabel.trim(),
-        priceMinor: Math.round(parseFloat(ticketPrice) * 100),
-        maxQuantity: ticketQuantity ? parseInt(ticketQuantity) : undefined,
+        priceMinor: form.priceMinor,
+        maxQuantity: form.maxQuantity,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
         roomTypeId: ticketRoomTypeId ?? undefined,
@@ -189,15 +239,31 @@ export default function EventTicketsPage({
       cancelTicketEdit()
     } catch (err) {
       console.error("Failed to update ticket:", err)
+      setTicketError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not update the ticket type. Please try again."
+      )
+    } finally {
+      setIsMutating(false)
     }
   }
 
   const handleDeleteTicket = async (ticketTypeId: string) => {
     if (!confirm("Are you sure you want to delete this ticket type?")) return
+    setTicketError(null)
+    setIsMutating(true)
     try {
       await deleteTicketType({ ticketTypeId: ticketTypeId as any })
     } catch (err) {
       console.error("Failed to delete ticket:", err)
+      setTicketError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not delete the ticket type. Please try again."
+      )
+    } finally {
+      setIsMutating(false)
     }
   }
 
@@ -210,6 +276,7 @@ export default function EventTicketsPage({
     setTicketIsActive(true)
     setTicketVisibility("public")
     setTicketRoomTypeId(null)
+    setTicketError(null)
   }
 
   const startEditingTicket = (ticket: any) => {
@@ -223,7 +290,7 @@ export default function EventTicketsPage({
   }
 
   const handleTicketDragEnd = async (eventData: any) => {
-    if (eventData.canceled) return
+    if (eventData.canceled || isMutating) return
     const { source } = eventData.operation
     if (!isSortable(source)) return
     const sortableSource = source as any
@@ -235,6 +302,7 @@ export default function EventTicketsPage({
       : ticketTypes.ticketTypes.map((ticket: any) => String(ticket._id))
     const nextOrder = reorderItems(previousOrder, initialIndex, index)
     setTicketOrder(nextOrder)
+    setIsMutating(true)
 
     try {
       await reorderTicketTypes({
@@ -244,6 +312,13 @@ export default function EventTicketsPage({
     } catch (err) {
       console.error("Failed to reorder ticket types:", err)
       setTicketOrder(previousOrder)
+      setTicketError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not save the new ticket order. Please try again."
+      )
+    } finally {
+      setIsMutating(false)
     }
   }
 
@@ -262,9 +337,13 @@ export default function EventTicketsPage({
             </CardDescription>
           </div>
           {!isAddingTicket && !editingTicketId && (
-            <Button 
-              onClick={() => setIsAddingTicket(true)}
-              className="rounded-xl shadow-lg shadow-primary/20"
+             <Button
+               onClick={() => {
+                 setTicketError(null)
+                 setIsAddingTicket(true)
+               }}
+               disabled={isMutating}
+               className="rounded-xl shadow-lg shadow-primary/20"
             >
               <Plus className="mr-2 size-4" />
               Add Ticket
@@ -273,6 +352,15 @@ export default function EventTicketsPage({
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {ticketError ? (
+          <p
+            role="alert"
+            aria-live="assertive"
+            className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm font-medium text-destructive"
+          >
+            {ticketError}
+          </p>
+        ) : null}
         {(isAddingTicket || editingTicketId) && (
           <div className="space-y-4 rounded-2xl border border-primary/20 bg-primary/5 p-6 animate-in fade-in zoom-in-95 duration-300">
             <h4 className="text-sm font-black tracking-widest text-primary uppercase">
@@ -296,7 +384,7 @@ export default function EventTicketsPage({
                 <Input
                   type="number"
                   step="0.01"
-                  min="0"
+                   min="0.01"
                   value={ticketPrice}
                   onChange={(e) => setTicketPrice(e.target.value)}
                   placeholder="0.00"
@@ -369,17 +457,17 @@ export default function EventTicketsPage({
               </label>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={cancelTicketEdit} className="rounded-xl border-white/20">
+              <Button variant="outline" onClick={cancelTicketEdit} disabled={isMutating} className="rounded-xl border-white/20">
                 Cancel
               </Button>
               <Button
                 onClick={
                   editingTicketId ? handleUpdateTicket : handleAddTicket
                 }
-                disabled={!ticketLabel.trim() || !ticketPrice}
+                 disabled={isMutating || !ticketLabel.trim() || !ticketPrice}
                 className="rounded-xl px-8"
               >
-                {editingTicketId ? "Update" : "Add"} Ticket
+                 {isMutating ? "Saving…" : `${editingTicketId ? "Update" : "Add"} Ticket`}
               </Button>
             </div>
           </div>

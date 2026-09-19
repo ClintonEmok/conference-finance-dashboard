@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react"
-import { useQuery } from "convex/react"
+import { useConvexAuth, useQuery } from "convex/react"
 import {
   Banknote,
   ChevronLeft,
@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DashboardQueryState } from "@/components/dashboard/dashboard-query-state"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { api } from "@/lib/convex/api"
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import type { AttentionQueryState } from "@/lib/dashboard/workspace-attention"
@@ -41,10 +42,12 @@ const SEARCH_DEBOUNCE_MS = 250
 
 function PaymentAssignList({
   orderId,
+  currency,
   onAssigned,
   parentUnassignedPayments,
 }: {
   orderId: string
+  currency: string
   onAssigned: () => void
   parentUnassignedPayments?: AttentionQueryState<ReadonlyArray<Doc<"payments">>>
 }) {
@@ -176,7 +179,7 @@ function PaymentAssignList({
                   </div>
                 </div>
                 <p className="shrink-0 text-sm font-black tabular-nums text-foreground">
-                  {formatMoney(p.amountMinor)}
+                   {formatMoney(p.amountMinor, currency)}
                 </p>
               </div>
               <Button
@@ -203,14 +206,18 @@ function PaymentAssignList({
 
 function AssignedPaymentsList({
   orderId,
+  currency,
   onUnassigned,
 }: {
   orderId: string
+  currency: string
   onUnassigned: () => void
 }) {
   const payments = usePayments({ orderId }) as Doc<"payments">[] | undefined
   const unassignPayment = useUnassignPayment()
   const [unassigningId, setUnassigningId] = useState<string | null>(null)
+  const [unassignError, setUnassignError] = useState<string | null>(null)
+  const [paymentToDetach, setPaymentToDetach] = useState<Doc<"payments"> | null>(null)
 
   const assignedPayments = useMemo(
     () =>
@@ -220,13 +227,18 @@ function AssignedPaymentsList({
     [payments]
   )
 
-  async function handleUnassign(paymentId: Id<"payments">) {
-    setUnassigningId(paymentId)
+  async function handleUnassign(payment: Doc<"payments">) {
+    setUnassigningId(payment._id)
+    setUnassignError(null)
     try {
-      await unassignPayment({ paymentId })
+      await unassignPayment({ paymentId: payment._id })
       onUnassigned()
-    } catch {
-      // handled by Convex retry
+    } catch (error) {
+      setUnassignError(
+        error instanceof Error
+          ? error.message
+          : "Could not detach the payment. Please try again."
+      )
     } finally {
       setUnassigningId(null)
     }
@@ -254,7 +266,13 @@ function AssignedPaymentsList({
   }
 
   return (
-    <div className="space-y-3">
+    <>
+      <div className="space-y-3">
+      {unassignError ? (
+        <p role="alert" aria-live="assertive" className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+          {unassignError}
+        </p>
+      ) : null}
       <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
         Assigned ({assignedPayments.length})
       </p>
@@ -287,13 +305,13 @@ function AssignedPaymentsList({
                 </div>
               </div>
               <p className="shrink-0 text-sm font-black tabular-nums text-foreground">
-                {formatMoney(p.amountMinor)}
+                 {formatMoney(p.amountMinor, currency)}
               </p>
             </div>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void handleUnassign(p._id)}
+              onClick={() => setPaymentToDetach(p)}
               disabled={unassigningId !== null}
               className="mt-3 h-8 w-full rounded-lg text-[10px] font-bold uppercase tracking-wider text-destructive hover:text-destructive"
             >
@@ -307,14 +325,63 @@ function AssignedPaymentsList({
           </article>
         ))}
       </div>
-    </div>
+      </div>
+
+      <Dialog
+        open={paymentToDetach !== null}
+        onOpenChange={(open) => {
+          if (!open && unassigningId === null) setPaymentToDetach(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Detach this payment?</DialogTitle>
+            <DialogDescription>
+              {paymentToDetach
+                 ? `Detach the ${formatMoney(paymentToDetach.amountMinor, currency)} payment from this order? It will become available for reconciliation again.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={unassigningId !== null}>
+                Keep payment linked
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={unassigningId !== null}
+              onClick={() => {
+                if (!paymentToDetach) return
+                const payment = paymentToDetach
+                setPaymentToDetach(null)
+                void handleUnassign(payment)
+              }}
+            >
+              Detach payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
-function OrderAttendeeRows({ orderId }: { orderId: string }) {
-  const data = useQuery(api.orders.getOrderWithAttendees, {
-    orderId: orderId as Id<"orders">,
-  })
+function OrderAttendeeRows({
+  orderId,
+  currency,
+}: {
+  orderId: string
+  currency: string
+}) {
+  const { isAuthenticated, isLoading } = useConvexAuth()
+  const data = useQuery(
+    api.orders.getOrderWithAttendees,
+    isAuthenticated && !isLoading
+      ? { orderId: orderId as Id<"orders"> }
+      : "skip"
+  )
 
   if (data === undefined) {
     return (
@@ -355,7 +422,7 @@ function OrderAttendeeRows({ orderId }: { orderId: string }) {
                   </p>
                 </div>
                 <span className="font-mono text-sm font-bold tabular-nums text-foreground">
-                  {formatMoney(attendee.amountDueMinor)}
+                   {formatMoney(attendee.amountDueMinor, currency)}
                 </span>
               </div>
             ))}
@@ -385,12 +452,12 @@ function knownOutstanding(row: ReconciliationOrderRow) {
     : null
 }
 
-function moneyDisplay(value: number | null | undefined) {
-  return typeof value === "number" ? formatMoney(value) : "Unavailable"
+function moneyDisplay(value: number | null | undefined, currency: string) {
+  return typeof value === "number" ? formatMoney(value, currency) : "Unavailable"
 }
 
-function appliedMoneyDisplay(value: number | null | undefined) {
-  return typeof value === "number" ? formatMoney(value) : "Unavailable"
+function appliedMoneyDisplay(value: number | null | undefined, currency: string) {
+  return typeof value === "number" ? formatMoney(value, currency) : "Unavailable"
 }
 
 type PageProps = {
@@ -406,9 +473,11 @@ export default function EventReconciliationPage({
   reconciliation: parentReconciliation,
   unassignedPayments: parentUnassignedPayments,
 }: PageProps) {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth()
+  const canQuery = isAuthenticated && !authLoading
   const ordersQuery = useQuery(
     api.orders.getOrdersForReconciliation,
-    parentReconciliation ? "skip" : { eventId: event._id }
+    parentReconciliation || !canQuery ? "skip" : { eventId: event._id }
   ) as ReconciliationOrderRow[] | undefined
   const reconciliationState = parentReconciliation ?? (
     ordersQuery === undefined
@@ -567,7 +636,7 @@ export default function EventReconciliationPage({
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{visibleOrders.length} outstanding order{visibleOrders.length === 1 ? "" : "s"}</span>
-          <span className="font-semibold text-foreground">{moneyDisplay(totalOutstandingMinor())} outstanding</span>
+           <span className="font-semibold text-foreground">{moneyDisplay(totalOutstandingMinor(), event.currency)} outstanding</span>
         </div>
       </div>
 
@@ -651,13 +720,13 @@ export default function EventReconciliationPage({
                         <div className="text-[11px] text-muted-foreground/60">{row.buyerEmail}</div>
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums">
-                          {moneyDisplay(row.amountDueMinor)}
+                           {moneyDisplay(row.amountDueMinor, event.currency)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-emerald-600">
-                           {appliedMoneyDisplay(row.appliedAmountMinor)}
+                            {appliedMoneyDisplay(row.appliedAmountMinor, event.currency)}
                       </TableCell>
                       <TableCell className="px-6 py-5 text-right font-bold tabular-nums text-orange-600">
-                          {moneyDisplay(row.outstandingAmountMinor)}
+                           {moneyDisplay(row.outstandingAmountMinor, event.currency)}
                       </TableCell>
                       <TableCell className="px-6 py-5">
                         <Tooltip>
@@ -692,7 +761,7 @@ export default function EventReconciliationPage({
                          </Button>
                        </TableCell>
                      </TableRow>
-                    <OrderAttendeeRows orderId={row.orderId} />
+                    <OrderAttendeeRows orderId={row.orderId} currency={event.currency} />
                   </Fragment>
                 ))
               )}
@@ -758,19 +827,19 @@ export default function EventReconciliationPage({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Due</span>
                   <span className="font-mono text-sm font-bold tabular-nums">
-                    {moneyDisplay(selectedOrder.amountDueMinor)}
+                     {moneyDisplay(selectedOrder.amountDueMinor, event.currency)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Paid</span>
                   <span className="font-mono text-sm font-bold tabular-nums text-emerald-600">
-                       {appliedMoneyDisplay(selectedOrder.appliedAmountMinor)}
+                        {appliedMoneyDisplay(selectedOrder.appliedAmountMinor, event.currency)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Amount Left</span>
                   <span className="font-mono text-sm font-black text-orange-600">
-                     {moneyDisplay(selectedOrder.outstandingAmountMinor)}
+                     {moneyDisplay(selectedOrder.outstandingAmountMinor, event.currency)}
                   </span>
                 </div>
               </div>
@@ -778,12 +847,14 @@ export default function EventReconciliationPage({
               <TabsContent value="link" className="space-y-6">
                 <PaymentAssignList
                   orderId={selectedOrder.orderId}
+                  currency={event.currency}
                   onAssigned={() => setIsSheetOpen(false)}
                   parentUnassignedPayments={parentUnassignedPayments}
                 />
 
                 <AssignedPaymentsList
                   orderId={selectedOrder.orderId}
+                  currency={event.currency}
                   onUnassigned={() => {
                     // refetch happens automatically via hooks
                   }}

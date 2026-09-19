@@ -83,6 +83,7 @@ export function TikkieSection({ tikkieUrl, eventName }: TikkieSectionProps) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  aria-label={copied ? "Copied payment link" : "Copy payment link"}
                   onClick={handleCopy}
                   className="h-8 w-8 shrink-0 rounded-lg hover:bg-primary/10"
                 >

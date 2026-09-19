@@ -27,6 +27,9 @@ type OrderActionsPanelProps = {
   resendMessage: string | null
   resendErrorMessage: string | null
   onResendConfirmation: () => void
+  isResendDialogOpen: boolean
+  onOpenResendDialog: () => void
+  onCloseResendDialog: () => void
   isDeleteDialogOpen: boolean
   onOpenDeleteDialog: () => void
   onCloseDeleteDialog: () => void
@@ -43,6 +46,9 @@ export function OrderActionsPanel({
   resendMessage,
   resendErrorMessage,
   onResendConfirmation,
+  isResendDialogOpen,
+  onOpenResendDialog,
+  onCloseResendDialog,
   isDeleteDialogOpen,
   onOpenDeleteDialog,
   onCloseDeleteDialog,
@@ -57,7 +63,7 @@ export function OrderActionsPanel({
       <Button
         variant="outline"
         size="sm"
-        onClick={onResendConfirmation}
+        onClick={onOpenResendDialog}
         disabled={isResendingEmail || !canResendConfirmation}
         className="h-9 rounded-lg border-white/20 text-[11px] font-bold tracking-wider uppercase"
       >
@@ -130,6 +136,37 @@ export function OrderActionsPanel({
           </AlertDescription>
         </Alert>
       )}
+
+      <Dialog
+        open={isResendDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !isResendingEmail) onCloseResendDialog()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Resend booking confirmation?</DialogTitle>
+            <DialogDescription>
+              Send the booking confirmation email to this customer again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCloseResendDialog} disabled={isResendingEmail}>
+              Keep as is
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                onCloseResendDialog()
+                onResendConfirmation()
+              }}
+              disabled={isResendingEmail}
+            >
+              Resend email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={isDeleteDialogOpen}
