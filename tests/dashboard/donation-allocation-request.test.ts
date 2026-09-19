@@ -13,6 +13,7 @@ import {
   allocationRefusalCopy,
   allocationSkipMessage,
   buildAllocationRequest,
+  buildOrderAllocationRequest,
   nextAllocationKey,
   scopeIntentLabel,
   scopeLabel,
@@ -28,6 +29,7 @@ import {
 // Branded ids are strings at runtime; no server is involved in this suite.
 const maria = "attendee_maria" as Id<"orderAttendees">
 const tom = "attendee_tom" as Id<"orderAttendees">
+const order = "order_whole_order" as Id<"orders">
 
 const mariaTarget = { attendeeId: maria, scope: "event_charges" as const }
 const tomTarget = { attendeeId: tom, scope: "whole_order" as const }
@@ -200,6 +202,65 @@ describe("buildAllocationRequest", () => {
       reason: "invalid_amount",
       attendeeId: maria,
     })
+  })
+})
+
+describe("buildOrderAllocationRequest", () => {
+  it("emits one redacted whole-order target in stable key order", () => {
+    const equal = buildOrderAllocationRequest({
+      method: "equal",
+      target: { orderId: order },
+    })
+    expect(equal).toEqual({
+      ok: true,
+      request: {
+        method: "equal",
+        targets: [{ orderId: order, scope: "whole_order" }],
+      },
+      canonical:
+        '{"method":"equal","targets":[{"orderId":"order_whole_order","scope":"whole_order"}]}',
+    })
+    expectBuilt(equal)
+    expect(asServerRequest(equal.request)).toEqual(equal.request)
+    expect(equal.request).not.toHaveProperty("attendeeId")
+
+    const manual = buildOrderAllocationRequest({
+      method: "manual",
+      target: { orderId: order },
+      amount: "12,50",
+    })
+    expect(manual).toEqual({
+      ok: true,
+      request: {
+        method: "manual",
+        rows: [{ orderId: order, amountMinor: 1250, scope: "whole_order" }],
+      },
+      canonical:
+        '{"method":"manual","rows":[{"orderId":"order_whole_order","amountMinor":1250,"scope":"whole_order"}]}',
+    })
+    expectBuilt(manual)
+    expect(asServerRequest(manual.request)).toEqual(manual.request)
+    expect(manual.request).not.toHaveProperty("attendeeId")
+  })
+
+  it("requires one selected order and a positive manual amount", () => {
+    expect(
+      buildOrderAllocationRequest({ method: "equal", target: null })
+    ).toEqual({ ok: false, reason: "no_order" })
+    expect(
+      buildOrderAllocationRequest({
+        method: "manual",
+        target: { orderId: order },
+        amount: "0",
+      })
+    ).toEqual({ ok: false, reason: "invalid_amount", orderId: order })
+    expect(
+      buildOrderAllocationRequest({
+        method: "manual",
+        target: { orderId: order },
+        amount: "not-a-number",
+      })
+    ).toEqual({ ok: false, reason: "invalid_amount", orderId: order })
   })
 })
 

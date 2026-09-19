@@ -61,6 +61,17 @@ const allocationTargetValidator = v.object({
   scope: allocationScopeValidator,
 })
 
+const orderAllocationManualRowValidator = v.object({
+  orderId: v.id("orders"),
+  amountMinor: v.number(),
+  scope: v.literal("whole_order"),
+})
+
+const orderAllocationTargetValidator = v.object({
+  orderId: v.id("orders"),
+  scope: v.literal("whole_order"),
+})
+
 /**
  * The operator supplies ONLY a method, its selected targets and each target's
  * scope (D-07 / T-55-19). There is deliberately NO amount field on the `equal`
@@ -81,6 +92,18 @@ const allocationRequestValidator = v.union(
   v.object({
     method: v.literal("largest_balance_first"),
     targets: v.array(allocationTargetValidator),
+  }),
+  v.object({
+    method: v.literal("manual"),
+    rows: v.array(orderAllocationManualRowValidator),
+  }),
+  v.object({
+    method: v.literal("equal"),
+    targets: v.array(orderAllocationTargetValidator),
+  }),
+  v.object({
+    method: v.literal("largest_balance_first"),
+    targets: v.array(orderAllocationTargetValidator),
   })
 )
 
@@ -105,6 +128,28 @@ type AllocationRequest =
       targets: Array<{
         attendeeId: Id<"orderAttendees">
         scope: "event_charges" | "whole_order"
+      }>
+    }
+  | {
+      method: "manual"
+      rows: Array<{
+        orderId: Id<"orders">
+        amountMinor: number
+        scope: "whole_order"
+      }>
+    }
+  | {
+      method: "equal"
+      targets: Array<{
+        orderId: Id<"orders">
+        scope: "whole_order"
+      }>
+    }
+  | {
+      method: "largest_balance_first"
+      targets: Array<{
+        orderId: Id<"orders">
+        scope: "whole_order"
       }>
     }
 
@@ -482,6 +527,88 @@ async function resolveTargetOrderId(
 }
 
 /**
+ * Resolves an order-first target to the private attendee anchor used by the
+ * existing allocation engine. The browser supplies only the order id; every
+ * eligibility check and the stable anchor selection happen inside the same
+ * transaction as quote/commit.
+ */
+async function resolveOrderAllocationTarget(
+  ctx: FinanceDbCtx,
+  args: {
+    orderId: Id<"orders">
+    eventId: Id<"events">
+    orderIds: Id<"orders">[]
+    seenOrderIds: Set<string>
+  }
+): Promise<{ orderId: Id<"orders">; attendeeId: Id<"orderAttendees"> }> {
+  const event = await ctx.db.get("events", args.eventId)
+  if (!event || event.primarySourceKind !== "internal") {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_CROSS_EVENT,
+      `order ${String(args.orderId)} does not belong to an internal event`
+    )
+  }
+
+  const order = await ctx.db.get("orders", args.orderId)
+  if (!order) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNKNOWN_TARGET,
+      `order ${String(args.orderId)} does not exist`
+    )
+  }
+
+  if (!order.eventId || order.eventId !== args.eventId) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_CROSS_EVENT,
+      `order ${String(args.orderId)} belongs to another event`
+    )
+  }
+
+  const extension = await ctx.db
+    .query("ticketTailorOrders")
+    .withIndex("orderId", (q) => q.eq("orderId", args.orderId))
+    .first()
+  if (
+    typeof extension?.removedAt === "number" ||
+    typeof order.mergedIntoOrderId === "string"
+  ) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNKNOWN_TARGET,
+      `order ${String(args.orderId)} is not eligible for allocation`
+    )
+  }
+
+  let anchor: Doc<"orderAttendees"> | null = null
+  for await (const attendee of ctx.db
+    .query("orderAttendees")
+    .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))) {
+    if (
+      anchor === null ||
+      attendee.sortOrder < anchor.sortOrder ||
+      (attendee.sortOrder === anchor.sortOrder &&
+        String(attendee._id) < String(anchor._id))
+    ) {
+      anchor = attendee
+    }
+  }
+
+  if (anchor === null) {
+    throwAllocationError(
+      DONATION_ALLOCATION_ERROR_CODES.DONATION_ALLOCATION_UNKNOWN_TARGET,
+      `order ${String(args.orderId)} has no attendees`
+    )
+  }
+
+  const orderKey = String(args.orderId)
+  if (!args.seenOrderIds.has(orderKey)) {
+    args.seenOrderIds.add(orderKey)
+    args.orderIds.push(args.orderId)
+  }
+
+  return { orderId: args.orderId, attendeeId: anchor._id }
+}
+
+/**
  * Resolves a request into plan rows plus the single donation-scoped ceiling
  * map. The `donationId` is threaded through because it is what makes the
  * projection exclude SELF and include OTHERS.
@@ -518,24 +645,41 @@ async function resolvePlanRows(
   distribution: DonationDistributionPlan | null
   orderIds: Id<"orders">[]
   ceilings: Map<string, AllocationCeiling>
+  orderMode: boolean
 }> {
   const orderIds: Id<"orders">[] = []
   const seenOrderIds = new Set<string>()
+  let orderMode = false
 
   if (args.request.method === "manual") {
     const rows: DonationAllocationPlanRow[] = []
     for (const requested of args.request.rows) {
-      const orderId = await resolveTargetOrderId(ctx, {
-        attendeeId: requested.attendeeId,
-        eventId: args.eventId,
-        orderIds,
-        seenOrderIds,
-      })
+      let orderId: Id<"orders">
+      let attendeeId: Id<"orderAttendees">
+      if ("orderId" in requested) {
+        const resolved = await resolveOrderAllocationTarget(ctx, {
+          orderId: requested.orderId,
+          eventId: args.eventId,
+          orderIds,
+          seenOrderIds,
+        })
+        orderId = resolved.orderId
+        attendeeId = resolved.attendeeId
+        orderMode = true
+      } else {
+        orderId = await resolveTargetOrderId(ctx, {
+          attendeeId: requested.attendeeId,
+          eventId: args.eventId,
+          orderIds,
+          seenOrderIds,
+        })
+        attendeeId = requested.attendeeId
+      }
       rows.push({
-        attendeeId: String(requested.attendeeId),
+        attendeeId: String(attendeeId),
         orderId: String(orderId),
         amountMinor: requested.amountMinor,
-        scope: requested.scope,
+        scope: "orderId" in requested ? "whole_order" : requested.scope,
       })
     }
 
@@ -544,23 +688,45 @@ async function resolvePlanRows(
       orderIds,
     })
 
-    return { method: "manual", rows, distribution: null, orderIds, ceilings }
+    return {
+      method: "manual",
+      rows,
+      distribution: null,
+      orderIds,
+      ceilings,
+      orderMode,
+    }
   }
 
   // Distribution methods: resolve every selected target server-side, in the
   // operator's submitted order (never sorted).
   const targets: DonationDistributionTarget[] = []
   for (const requested of args.request.targets) {
-    const orderId = await resolveTargetOrderId(ctx, {
-      attendeeId: requested.attendeeId,
-      eventId: args.eventId,
-      orderIds,
-      seenOrderIds,
-    })
+    let orderId: Id<"orders">
+    let attendeeId: Id<"orderAttendees">
+    if ("orderId" in requested) {
+      const resolved = await resolveOrderAllocationTarget(ctx, {
+        orderId: requested.orderId,
+        eventId: args.eventId,
+        orderIds,
+        seenOrderIds,
+      })
+      orderId = resolved.orderId
+      attendeeId = resolved.attendeeId
+      orderMode = true
+    } else {
+      orderId = await resolveTargetOrderId(ctx, {
+        attendeeId: requested.attendeeId,
+        eventId: args.eventId,
+        orderIds,
+        seenOrderIds,
+      })
+      attendeeId = requested.attendeeId
+    }
     targets.push({
-      attendeeId: String(requested.attendeeId),
+      attendeeId: String(attendeeId),
       orderId: String(orderId),
-      scope: requested.scope,
+      scope: "orderId" in requested ? "whole_order" : requested.scope,
     })
   }
 
@@ -582,6 +748,7 @@ async function resolvePlanRows(
     distribution,
     orderIds,
     ceilings,
+    orderMode,
   }
 }
 
@@ -722,11 +889,52 @@ type FrozenAllocationRow = {
 }
 
 /** The shape every mutation in this module returns and the ledger replays. */
+type AllocationResultRow = {
+  attendeeId: string
+  orderId: string
+  amountMinor: number
+  scope: "event_charges" | "whole_order"
+}
+
 type FrozenAllocationResult = {
   donationId: Id<"payments">
   allocatedTotalMinor: number
   remainingMinor: number
-  rows: FrozenAllocationRow[]
+  rows: ReadonlyArray<AllocationResultRow>
+}
+
+type PublicOrderAllocationRow = {
+  orderId: Id<"orders">
+  scope: "whole_order"
+  amountMinor: number
+}
+
+function isOrderAllocationRequest(request: AllocationRequest): boolean {
+  if (request.method === "manual") {
+    return request.rows.some((row) => "orderId" in row)
+  }
+  return request.targets.some((target) => "orderId" in target)
+}
+
+/** Remove the private server-resolved anchor from order-mode responses only. */
+function redactOrderAllocationResult(
+  result: FrozenAllocationResult,
+  orderMode: boolean
+): FrozenAllocationResult | Omit<FrozenAllocationResult, "rows"> & {
+  rows: PublicOrderAllocationRow[]
+} {
+  if (!orderMode) return result
+
+  return {
+    donationId: result.donationId,
+    allocatedTotalMinor: result.allocatedTotalMinor,
+    remainingMinor: result.remainingMinor,
+    rows: result.rows.map((row) => ({
+      orderId: row.orderId as Id<"orders">,
+      scope: "whole_order" as const,
+      amountMinor: row.amountMinor,
+    })),
+  }
 }
 
 /**
@@ -875,7 +1083,7 @@ function serializeAllocationResult(
     donationId,
     allocatedTotalMinor: sumRecordedAllocationMinor(rows),
     remainingMinor: remaining.remainingMinor,
-    rows,
+    rows: [...rows],
   }
 }
 
@@ -931,7 +1139,10 @@ export const allocateDonation = mutation({
       args.donationId
     )
     if (replayed) {
-      return replayed
+      return redactOrderAllocationResult(
+        replayed,
+        isOrderAllocationRequest(args.request)
+      )
     }
 
     // Read the donation's existing allocations even though the set-replace
@@ -940,7 +1151,7 @@ export const allocateDonation = mutation({
     // nothing, so there is no OCC guard to evaporate.
     await loadRecordedAllocations(ctx, args.donationId)
 
-    const { rows, ceilings } = await resolvePlanRows(ctx, {
+    const { rows, ceilings, orderMode } = await resolvePlanRows(ctx, {
       request: args.request,
       eventId: args.eventId,
       donationId: args.donationId,
@@ -995,7 +1206,7 @@ export const allocateDonation = mutation({
       submissionId,
     })
 
-    return frozen
+    return redactOrderAllocationResult(frozen, orderMode)
   },
 })
 
@@ -1477,12 +1688,13 @@ export const previewDonationAllocation = query({
     // ONE resolution path, shared with the mutation. `availableMinor` is the
     // donation's full amount because a preview describes a SET-REPLACE
     // submission, which re-places the whole donation.
-    const { method, rows, distribution, ceilings } = await resolvePlanRows(ctx, {
+    const { method, rows, distribution, ceilings, orderMode } =
+      await resolvePlanRows(ctx, {
       request: args.request,
       eventId: args.eventId,
       donationId: args.donationId,
       availableMinor: donation.amountMinor,
-    })
+      })
 
     let breakdown: DonationDistributionTargetResult[]
     let totalAllocatedMinor: number
@@ -1554,6 +1766,10 @@ export const previewDonationAllocation = query({
       })
     )
 
+    const publicRows = orderMode
+      ? rowsWithCapacity.map(({ attendeeId: _privateAttendeeId, ...row }) => row)
+      : rowsWithCapacity
+
     return {
       donationId: args.donationId,
       eventId: args.eventId,
@@ -1564,8 +1780,8 @@ export const previewDonationAllocation = query({
       totalAllocatedMinor,
       leftoverMinor,
       remainderMinor,
-      remainderRecipientAttendeeIds,
-      rows: rowsWithCapacity,
+      ...(orderMode ? {} : { remainderRecipientAttendeeIds }),
+      rows: publicRows,
       previewOnly: true as const,
     }
   },

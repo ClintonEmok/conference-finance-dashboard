@@ -595,6 +595,22 @@ export declare const api: {
                 attendeeId: Id<"orderAttendees">;
                 scope: "event_charges" | "whole_order";
               }>;
+            }
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                orderId: Id<"orders">;
+                scope: "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
             };
       },
       any
@@ -670,6 +686,22 @@ export declare const api: {
                 attendeeId: Id<"orderAttendees">;
                 scope: "event_charges" | "whole_order";
               }>;
+            }
+          | {
+              method: "manual";
+              rows: Array<{
+                amountMinor: number;
+                orderId: Id<"orders">;
+                scope: "whole_order";
+              }>;
+            }
+          | {
+              method: "equal";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
+            }
+          | {
+              method: "largest_balance_first";
+              targets: Array<{ orderId: Id<"orders">; scope: "whole_order" }>;
             };
       },
       any
