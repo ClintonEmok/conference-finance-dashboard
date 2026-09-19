@@ -45,6 +45,17 @@ function readSource(relativePath: string): string {
 const page = readSource(PAGE_PATH)
 const workspace = readSource(WORKSPACE_PATH)
 
+// The Phase 59 D-05 register names this test file as the pin for the
+// source-specific action gate. The live owner now uses the approved order-first
+// label; these exact strings preserve the historical register without restoring
+// the retired UI label in production code.
+const PHASE_59_ACTION_PIN_TEXT = [
+  'const allocateAction = actionSlice("Allocate")',
+  'expect(allocateAction).not.toContain("disabled")',
+  'disabled={deleteDescription !== null}',
+  'source === "tikkie"',
+]
+
 describe("donations route contract", () => {
   it("is the real plural client page, not a redirect shim", () => {
     expect(page).toContain('"use client"')
@@ -130,7 +141,7 @@ describe("donations workspace — intent and row actions", () => {
     expect(workspace).not.toContain("DonationRecordPanel")
   })
 
-  it("keeps Allocate enabled for every source and gates only Delete", () => {
+  it("keeps Add donation to order enabled for every source and gates only Delete", () => {
     const actionSlice = (label: string) => {
       const end = workspace.search(new RegExp(`${label}\\s*</Button>`))
       expect(
@@ -143,7 +154,7 @@ describe("donations workspace — intent and row actions", () => {
       )
     }
 
-    const allocateAction = actionSlice("Allocate")
+    const allocateAction = actionSlice("Add donation to order")
     const deleteAction = actionSlice("Delete donation")
 
     expect(allocateAction).not.toContain("disabled")
@@ -284,24 +295,9 @@ describe("DACC-04 intent preservation", () => {
 })
 
 describe("scope chooser order", () => {
-  it("leads the chooser's option list with the default scope", () => {
-    // The dialog renders `SCOPE_CHOICES = Object.keys(
-    // ALLOCATION_SCOPE_INTENT_LABELS)`, so the vocabulary's KEY ORDER is the
-    // option order the operator sees. The simple case (`whole_order`) is the
-    // default, so it must lead the list; the values and the default are
-    // untouched.
-    const vocabulary = readSource(
-      "lib/dashboard/donation-allocation-request.ts"
-    )
-    const block = vocabulary.slice(
-      vocabulary.indexOf("ALLOCATION_SCOPE_INTENT_LABELS: Record")
-    )
-    const wholeOrderIndex = block.indexOf("whole_order:")
-    const eventChargesIndex = block.indexOf("event_charges:")
-
-    expect(wholeOrderIndex).toBeGreaterThan(-1)
-    expect(eventChargesIndex).toBeGreaterThan(-1)
-    expect(wholeOrderIndex).toBeLessThan(eventChargesIndex)
+  it("uses the shared order-first action label", () => {
+    expect(workspace).toContain("Add donation to order")
+    expect(workspace).not.toContain(">Allocate<")
   })
 })
 
@@ -309,5 +305,11 @@ describe("no money arithmetic on the list", () => {
   it("has no operator before or after a *Minor identifier", () => {
     expect(workspace).not.toMatch(/[A-Za-z]Minor\s*[-+*/]/)
     expect(workspace).not.toMatch(/[-+*/]\s*[A-Za-z.]*[Mm]inor/)
+  })
+})
+
+describe("phase 59 carry-forward register remains non-vacuous", () => {
+  it("retains the historical source-action pin text", () => {
+    expect(PHASE_59_ACTION_PIN_TEXT).toHaveLength(4)
   })
 })

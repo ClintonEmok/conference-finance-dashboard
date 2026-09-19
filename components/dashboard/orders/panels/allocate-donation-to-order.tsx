@@ -61,10 +61,10 @@ export function AllocateDonationToOrder({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Allocate a donation to this order</DialogTitle>
+          <DialogTitle>Add donation to order</DialogTitle>
           <DialogDescription>
             Choose a donation with an unallocated remainder. The allocation
-            editor opens next, pre-scoped to this order&apos;s attendees.
+            editor opens next with this order already selected.
           </DialogDescription>
         </DialogHeader>
 

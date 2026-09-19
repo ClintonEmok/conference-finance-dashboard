@@ -11,7 +11,7 @@ import { AssignPaymentSheet } from "@/app/dashboard/manage-orders/[orderId]/assi
 import type { EventDashboardEvent } from "@/components/dashboard/event-dashboard-context"
 import {
   DonationAllocationDialog,
-  type DonationAllocationInitialTarget,
+  type DonationAllocationInitialOrder,
 } from "@/components/dashboard/finance/donation-allocation-dialog"
 import { formatMoney } from "@/lib/format"
 import { OrderSummaryPanel } from "./panels/order-summary-panel"
@@ -160,8 +160,8 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
   const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false)
 
   // D-02: the order-entry allocation session. The chooser picks a donation,
-  // the shared editor receives it pre-scoped to this order's attendees, and
-  // the dialog's own result feeds the status band.
+  // the shared editor receives this order's public identity, and the dialog's
+  // own result feeds the status band.
   const [isAllocateChooserOpen, setIsAllocateChooserOpen] = useState(false)
   const [allocationDonation, setAllocationDonation] =
     useState<AllocateDonationChoice | null>(null)
@@ -172,18 +172,19 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
 
   const orderPayload = (payload ?? null) as OrderAttendeePayload | null
 
-  // The pre-scoping seam: the WHOLE order attendee list, each at the editor's
-  // default (whole-order) scope. `undefined` until the order payload resolves;
-  // the editor treats an absent prop as today's empty selection.
-  const orderTargets = useMemo<DonationAllocationInitialTarget[] | undefined>(
+  // The order-first seam: only order-facing identity crosses into the shared
+  // editor. `undefined` until the order payload resolves; the editor treats an
+  // absent prop as an unselected donation-side session.
+  const orderIdentity = useMemo<DonationAllocationInitialOrder | undefined>(
     () =>
       orderPayload
-        ? orderPayload.attendees.map((attendee) => ({
-            attendeeId: attendee.id as Id<"orderAttendees">,
-            name: attendee.name,
-            orderRef: orderPayload.order.bookingRef,
-            ticketTypeLabel: attendee.ticketTypeLabel,
-          }))
+        ? {
+            orderId: orderPayload.order.id as Id<"orders">,
+            bookingRef: orderPayload.order.bookingRef,
+            providerOrderId: orderPayload.order.providerOrderId,
+            bookerName: orderPayload.order.bookerName,
+            bookerEmail: orderPayload.order.bookerEmail,
+          }
         : undefined,
     [orderPayload]
   )
@@ -256,18 +257,21 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
     }
   }, [ledger, orderPayload])
 
-  // Display mapping only: the rows are the server's recorded allocation rows,
-  // and the attendee name is a lookup against the loaded order payload (raw id
-  // fallback — never an invented label). No money is computed here.
+  // Display mapping only: whole-order rows deliberately stay order-facing so
+  // the server's private anchor cannot become an operator label. Legacy
+  // event-charge rows retain their attendee-facing lookup. No money is computed
+  // here.
   const allocationRows: OrderAllocationRow[] = useMemo(
     () =>
       (ledger?.allocationRows ?? []).map((row) => ({
         donationId: row.donationId,
         attendeeId: row.attendeeId,
         attendeeName:
-          orderPayload?.attendees.find(
-            (attendee) => String(attendee.id) === String(row.attendeeId)
-          )?.name ?? String(row.attendeeId),
+          row.scope === "whole_order"
+            ? "Whole-order credit"
+            : orderPayload?.attendees.find(
+                (attendee) => String(attendee.id) === String(row.attendeeId)
+              )?.name ?? String(row.attendeeId),
         amountMinor: row.amountMinor,
         scope: row.scope,
         recordedAt: new Date(row.recordedAt).toISOString(),
@@ -558,7 +562,7 @@ export function OrderDetailSurface({ slug, orderId: rawOrderId, event }: PagePro
           payerName={allocationDonation.payerName}
           amountMinor={allocationDonation.amountMinor}
           currency={event.currency}
-          initialTargets={orderTargets}
+           initialOrder={orderIdentity}
           onAllocated={(result) => {
             setAllocationSuccess(result)
             setAllocationDonation(null)

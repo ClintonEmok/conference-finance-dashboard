@@ -282,7 +282,7 @@ export function DonationsWorkspace({ slug }: { slug: string }) {
                                 })
                               }}
                             >
-                              Allocate
+                               Add donation to order
                             </Button>
                             <Button
                               type="button"

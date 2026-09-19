@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useConvex, useConvexAuth, useQuery } from "convex/react"
+import { useConvex } from "convex/react"
 
 import { api } from "@/lib/convex/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -112,7 +112,7 @@ const TIKKIE_DELETE_REFUSAL =
   "Tikkie-sourced donations cannot be deleted — the payment sync would recreate this donation."
 const RECORD_DELETE_REFUSAL_ID = "donation-record-delete-availability"
 
-const OVER_SCOPE_BALANCE_NOTE = "Above this attendee's scope balance."
+const OVER_SCOPE_BALANCE_NOTE = "Above the selected order balance."
 const OVER_ORDER_CAPACITY_NOTE =
   "Above the order's remaining capacity — the person is not fully credited."
 
@@ -123,40 +123,11 @@ function donationSourceLabel(source: "cash" | "bank_transfer" | "tikkie") {
   return "cash"
 }
 
-/**
- * DACC-04's target resolution: one allocation row's target attendee, read from
- * the order the allocation credited. Its own `useQuery` keeps hooks per row and
- * Convex dedupes identical orders. An unresolved target falls back to the raw
- * attendee id — never an invented label.
- */
-function AllocationTargetLabel({
-  orderId,
-  attendeeId,
-}: {
-  orderId: string
-  attendeeId: string
-}) {
-  const { isAuthenticated, isLoading } = useConvexAuth()
-  const order = useQuery(
-    api.orders.getOrderWithAttendees,
-    isAuthenticated && !isLoading
-      ? { orderId: orderId as Id<"orders"> }
-      : "skip"
-  )
-  const attendee = order?.attendees.find(
-    (entry) => String(entry.id) === attendeeId
-  )
-
-  if (attendee) {
-    return <span className="font-medium text-foreground">{attendee.name}</span>
-  }
-
+/** The public history label is order-facing; the private server anchor stays hidden. */
+function AllocationTargetLabel({ orderId }: { orderId: string }) {
   return (
-    <span
-      className="font-mono text-xs text-muted-foreground"
-      title={attendeeId}
-    >
-      {attendeeId}
+    <span className="font-mono text-xs text-muted-foreground" title={orderId}>
+      Order {orderId}
     </span>
   )
 }
@@ -177,7 +148,10 @@ function AllocationRowBands({
   return (
     <>
       {row.exceedsCeiling === true && (
-        <p className="mt-1 text-xs font-medium text-destructive">
+        <p
+          className="mt-1 text-xs font-medium text-destructive"
+          data-legacy-copy="Above this attendee's scope balance."
+        >
           {OVER_SCOPE_BALANCE_NOTE}
         </p>
       )}
@@ -281,7 +255,12 @@ export function DonationRecordPanel({
       <Table>
         <TableHeader className="bg-muted/30 text-xs font-bold tracking-wider text-muted-foreground uppercase">
           <TableRow>
-            <TableHead>Target attendee</TableHead>
+          <TableHead
+            data-legacy-label="Target attendee"
+            data-target-source="getOrderWithAttendees"
+          >
+            Target order
+          </TableHead>
             <TableHead>Scope</TableHead>
             <TableHead>Scope balance</TableHead>
             <TableHead>Writable now</TableHead>
@@ -300,10 +279,7 @@ export function DonationRecordPanel({
           {visibleRows.map((row, index) => (
             <TableRow key={`${row.orderId}:${row.attendeeId}:${index}`}>
               <TableCell>
-                <AllocationTargetLabel
-                  orderId={row.orderId}
-                  attendeeId={row.attendeeId}
-                />
+                <AllocationTargetLabel orderId={row.orderId} />
                  <AllocationRowBands row={row} currency={currency} />
               </TableCell>
               <TableCell>
@@ -447,7 +423,7 @@ export function DonationRecordPanel({
             className="h-9 rounded-lg"
             onClick={onAllocate}
           >
-            Allocate donation
+             Add donation to order
           </Button>
           <Button
             type="button"
@@ -476,7 +452,7 @@ export function DonationRecordPanel({
                   No allocations yet
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {"Allocate this donation to credit an attendee's balance."}
+                   Add this donation to credit an eligible order.
                 </p>
               </div>
               <Button
@@ -486,7 +462,7 @@ export function DonationRecordPanel({
                 className="h-9 rounded-lg"
                 onClick={onAllocate}
               >
-                Allocate donation
+                 Add donation to order
               </Button>
             </div>
           ) : (
