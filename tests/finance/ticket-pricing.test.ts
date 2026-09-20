@@ -7,6 +7,7 @@ import {
 import {
   epochToEventLocalDateTime,
   eventLocalDateTimeToEpoch,
+  formatEventDateTime,
 } from "@/lib/time/event-timezone"
 
 const CUTOFF = Date.UTC(2026, 5, 1, 12, 0, 0)
@@ -116,6 +117,9 @@ describe("event timezone datetime-local conversion", () => {
     expect(epoch).toBe(Date.UTC(2026, 0, 15, 8, 30))
     expect(epochToEventLocalDateTime(epoch!, "Europe/Amsterdam")).toBe(
       "2026-01-15T09:30"
+    )
+    expect(formatEventDateTime(epoch!, "Europe/Amsterdam")).toBe(
+      "15 January 2026 at 09:30"
     )
   })
 

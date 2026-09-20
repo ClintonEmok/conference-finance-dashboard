@@ -31,6 +31,7 @@ import { formatMoney, parseMinorUnitsInput } from "@/lib/format"
 import {
   epochToEventLocalDateTime,
   eventLocalDateTimeToEpoch,
+  formatEventDateTime,
 } from "@/lib/time/event-timezone"
 
 function reorderItems(items: string[], fromIndex: number, toIndex: number) {
@@ -102,7 +103,7 @@ function TicketTypeRow({
                 Late surcharge: +{formatMoney(ticket.lateSurchargeMinor, eventCurrency)}
                 {ticket.lateSurchargeEffectiveAt !== undefined &&
                 ticket.lateSurchargeEffectiveAt !== null
-                  ? ` from ${epochToEventLocalDateTime(ticket.lateSurchargeEffectiveAt, eventTimezone) ?? "the configured effective time"} (${eventTimezone})`
+                  ? ` from ${formatEventDateTime(ticket.lateSurchargeEffectiveAt, eventTimezone) ?? "the configured effective time"} (${eventTimezone})`
                   : " (effective time missing)"}
               </p>
             ) : null}

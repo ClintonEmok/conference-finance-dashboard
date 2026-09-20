@@ -148,3 +148,24 @@ export function epochToEventLocalDateTime(
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${String(parts.year).padStart(4, "0")}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`
 }
+
+/** Format an epoch instant as a human-readable date and time in the event timezone. */
+export function formatEventDateTime(
+  epoch: number,
+  timeZone: string
+): string | null {
+  const zone = getTimeZone(timeZone)
+  if (!Number.isFinite(epoch) || !zone) {
+    return null
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(epoch))
+}
