@@ -23,6 +23,7 @@ import {
 } from "../lib/domain/signup/submission-token"
 import { buildTrackPaymentPermalink } from "../lib/domain/track-payment/edit-token"
 import { loadOrderByBookingRef } from "./bookingRefs"
+import { resolveTicketPriceSnapshot } from "../lib/domain/finance/ticket-pricing"
 
 const IDEMPOTENCY_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -598,6 +599,10 @@ export const submitSignupEnvelope = mutation({
     )
     const soldCountIncrements = new Map<Id<"ticketTypes">, number>()
     const attendeeKeyToTicketTypeId = new Map<string, Id<"ticketTypes">>()
+    const ticketPriceSnapshotByAttendeeKey = new Map<
+      string,
+      ReturnType<typeof resolveTicketPriceSnapshot>
+    >()
     const seenTicketSelectionKeys = new Set<string>()
 
     for (const selection of args.ticketSelections) {
@@ -676,6 +681,10 @@ export const submitSignupEnvelope = mutation({
       attendeeKeyToTicketTypeId.set(
         selection.attendeeKey,
         selection.ticketTypeId
+      )
+      ticketPriceSnapshotByAttendeeKey.set(
+        selection.attendeeKey,
+        resolveTicketPriceSnapshot(ticketType, now)
       )
     }
 
@@ -902,6 +911,9 @@ export const submitSignupEnvelope = mutation({
         ticketTypeId: selection.ticketTypeId,
         quantity: 1,
         sortOrder,
+        ticketPriceSnapshot: ticketPriceSnapshotByAttendeeKey.get(
+          selection.attendeeKey
+        ),
       })
 
       // soldCountIncrements was fully precomputed during the CR-08 capacity
@@ -1246,7 +1258,8 @@ export const getByBookingRef = query({
         ticketTypeId: String(ts.ticketTypeId),
         ticketTypeName: ticketType?.label ?? "Unknown Ticket",
         quantity: ts.quantity,
-        pricePerTicketMinor: ticketType?.priceMinor ?? 0,
+        pricePerTicketMinor:
+          ts.ticketPriceSnapshot?.unitPriceMinor ?? ticketType?.priceMinor ?? 0,
       }
     })
 

@@ -15,6 +15,7 @@ import {
   NIGHT_BEFORE_SUPERIOR_PREMIUM_MINOR,
   type AccommodationOptionUnit,
 } from "../lib/domain/finance/accommodation-amounts"
+import { resolveTicketPriceSnapshot } from "../lib/domain/finance/ticket-pricing"
 import { resolveRequiresBed } from "./accommodationBedRequirement"
 
 const PUBLIC_EVENT_LIMIT = 50
@@ -192,6 +193,7 @@ const publicSignupAccommodationQuoteValidator = v.object({
 
 function mapTicket(
   ticket: Doc<"ticketTypes">,
+  pricedAt: number,
   roomTypeCategoryById: Map<
     string,
     {
@@ -201,6 +203,7 @@ function mapTicket(
     }
   >
 ) {
+  const ticketPriceSnapshot = resolveTicketPriceSnapshot(ticket, pricedAt)
   const selectableByState = ticket.availabilityState === "selectable"
   // CR-08: a ticket whose soldCount has reached its configured maxQuantity is
   // sold out regardless of its availability state — the UI must never
@@ -222,7 +225,7 @@ function mapTicket(
     return {
       ticketTypeId: ticket._id,
       label: ticket.label,
-      priceMinor: ticket.priceMinor,
+      priceMinor: ticketPriceSnapshot.unitPriceMinor,
       selectable: true,
       reason: null,
       accommodationIncluded: ticket.accommodationIncluded === true,
@@ -247,7 +250,7 @@ function mapTicket(
   return {
     ticketTypeId: ticket._id,
     label: ticket.label,
-    priceMinor: ticket.priceMinor,
+    priceMinor: ticketPriceSnapshot.unitPriceMinor,
     selectable: false,
     reason,
     accommodationIncluded: ticket.accommodationIncluded === true,
@@ -962,6 +965,7 @@ export const getPublicSignupCatalog = query({
   args: {},
   returns: v.array(publicSignupCatalogEventValidator),
   handler: async (ctx) => {
+    const pricedAt = Date.now()
     const openEvents = await ctx.db
       .query("events")
       .withIndex("by_signup_visibility", (q) =>
@@ -1071,7 +1075,7 @@ export const getPublicSignupCatalog = query({
 
             return left.label.localeCompare(right.label)
           })
-          .map((ticket) => mapTicket(ticket, roomTypeCategoryById))
+          .map((ticket) => mapTicket(ticket, pricedAt, roomTypeCategoryById))
 
         const accommodation = !event.accommodationEnabled
           ? {
@@ -1216,6 +1220,8 @@ export const getPublicSignupAccommodationQuote = query({
       throw new Error("QUOTE_INVALID: At least one attendee is required.")
     }
 
+    const pricedAt = Date.now()
+
     const seenAttendeeKeys = new Set<string>()
     for (const attendee of args.attendees) {
       if (seenAttendeeKeys.has(attendee.attendeeKey)) {
@@ -1286,6 +1292,8 @@ export const getPublicSignupAccommodationQuote = query({
           "QUOTE_INVALID: Selected ticket type is no longer selectable."
         )
       }
+
+      const ticketPriceSnapshot = resolveTicketPriceSnapshot(ticket, pricedAt)
 
       // CR-08/CR-10: the quote uses the same aggregate capacity rule as the
       // submission path, so a ticket that is already full — or that would be
@@ -1369,14 +1377,14 @@ export const getPublicSignupAccommodationQuote = query({
         },
       })
 
-      ticketTotalMinor += ticket.priceMinor
+      ticketTotalMinor += ticketPriceSnapshot.unitPriceMinor
       accommodationTotalMinor += result.totalMinor
 
       return {
         attendeeKey: attendee.attendeeKey,
         ticketTypeId: attendee.ticketTypeId,
         ticketLabel: ticket.label,
-        ticketPriceMinor: ticket.priceMinor,
+        ticketPriceMinor: ticketPriceSnapshot.unitPriceMinor,
         categoryId: resolved.categoryId
           ? (resolved.categoryId as Id<"accommodationCategories">)
           : undefined,
@@ -1394,7 +1402,7 @@ export const getPublicSignupAccommodationQuote = query({
         requiresBed: resolveRequiresBed(ticket),
         baseNights: eventBaseNights,
         accommodationTotalMinor: result.totalMinor,
-        amountDueMinor: ticket.priceMinor + result.totalMinor,
+        amountDueMinor: ticketPriceSnapshot.unitPriceMinor + result.totalMinor,
         lines: result.lines,
       }
     })

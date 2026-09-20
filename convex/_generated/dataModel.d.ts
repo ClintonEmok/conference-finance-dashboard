@@ -1123,6 +1123,13 @@ export type DataModel = {
       orderId: Id<"orders">;
       quantity: number;
       sortOrder: number;
+      ticketPriceSnapshot?: {
+        basePriceMinor: number;
+        lateSurchargeEffectiveAt?: number;
+        pricedAt: number;
+        surchargeMinor: number;
+        unitPriceMinor: number;
+      };
       ticketTypeId: Id<"ticketTypes">;
       _id: Id<"orderTicketSelections">;
       _creationTime: number;
@@ -1134,6 +1141,12 @@ export type DataModel = {
       | "orderId"
       | "quantity"
       | "sortOrder"
+      | "ticketPriceSnapshot"
+      | "ticketPriceSnapshot.basePriceMinor"
+      | "ticketPriceSnapshot.lateSurchargeEffectiveAt"
+      | "ticketPriceSnapshot.pricedAt"
+      | "ticketPriceSnapshot.surchargeMinor"
+      | "ticketPriceSnapshot.unitPriceMinor"
       | "ticketTypeId";
     indexes: {
       by_id: ["_id"];
@@ -1816,6 +1829,8 @@ export type DataModel = {
       eventId: Id<"events">;
       isActive: boolean;
       label: string;
+      lateSurchargeEffectiveAt?: number;
+      lateSurchargeMinor?: number;
       maxQuantity?: number;
       priceMinor: number;
       requiresBed?: boolean;
@@ -1836,6 +1851,8 @@ export type DataModel = {
       | "eventId"
       | "isActive"
       | "label"
+      | "lateSurchargeEffectiveAt"
+      | "lateSurchargeMinor"
       | "maxQuantity"
       | "priceMinor"
       | "requiresBed"

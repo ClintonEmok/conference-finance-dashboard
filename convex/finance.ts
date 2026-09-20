@@ -33,6 +33,13 @@ type OrderSelectionDoc = {
   attendeeId: Id<"orderAttendees">
   ticketTypeId: Id<"ticketTypes">
   quantity: number
+  ticketPriceSnapshot?: {
+    basePriceMinor: number
+    surchargeMinor: number
+    unitPriceMinor: number
+    pricedAt: number
+    lateSurchargeEffectiveAt?: number
+  }
 }
 
 type TicketTypeDoc = {
@@ -281,7 +288,6 @@ export async function loadOrderAmountDueBreakdowns(
     )
   )
 
-  const ticketTypePriceById = new Map<string, number>()
   const ticketTypeInfoById = new Map<
     string,
     { priceMinor: number; accommodationIncluded: boolean }
@@ -292,7 +298,6 @@ export async function loadOrderAmountDueBreakdowns(
       continue
     }
 
-    ticketTypePriceById.set(String(ticketType._id), ticketType.priceMinor)
     ticketTypeInfoById.set(String(ticketType._id), {
       priceMinor: ticketType.priceMinor,
       accommodationIncluded: ticketType.accommodationIncluded === true,
@@ -419,7 +424,7 @@ export async function loadOrderAmountDueBreakdowns(
     // priced from that ticket's known `priceMinor` (never fabricated as zero).
     for (const selection of selections) {
       const ticketTypeId = String(selection.ticketTypeId)
-      if (!ticketTypePriceById.has(ticketTypeId)) {
+      if (!ticketTypeInfoById.has(ticketTypeId)) {
         throw new Error(
           `Order ${orderKey} references ticket type ${ticketTypeId} which does not exist; refusing to price the order with an unknown ticket charge.`
         )
@@ -434,9 +439,24 @@ export async function loadOrderAmountDueBreakdowns(
       }
     }
 
+    const ticketTypePriceBySelectionKey = new Map<string, number>()
+    const pricedSelections = selections.map((selection, index) => {
+      const selectionKey = `${String(selection.ticketTypeId)}:${index}`
+      const ticketInfo = ticketTypeInfoById.get(String(selection.ticketTypeId))
+      ticketTypePriceBySelectionKey.set(
+        selectionKey,
+        selection.ticketPriceSnapshot?.unitPriceMinor ??
+          ticketInfo?.priceMinor ??
+          0
+      )
+      return {
+        ...selection,
+        ticketTypeId: selectionKey,
+      }
+    })
     const baseBreakdown = deriveOrderAmountBreakdown({
-      selections,
-      ticketTypePriceById,
+      selections: pricedSelections,
+      ticketTypePriceById: ticketTypePriceBySelectionKey,
     })
     let amountDueMinor = baseBreakdown.amountDueMinor
     const amountDueByAttendeeId = baseBreakdown.amountDueByAttendeeId

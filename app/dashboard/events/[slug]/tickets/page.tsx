@@ -28,6 +28,10 @@ import { useEventDashboard } from "@/components/dashboard/event-dashboard-contex
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
 import { formatMoney, parseMinorUnitsInput } from "@/lib/format"
+import {
+  epochToEventLocalDateTime,
+  eventLocalDateTimeToEpoch,
+} from "@/lib/time/event-timezone"
 
 function reorderItems(items: string[], fromIndex: number, toIndex: number) {
   const next = [...items]
@@ -40,12 +44,14 @@ function TicketTypeRow({
   ticket,
   index,
   eventCurrency,
+  eventTimezone,
   onEdit,
   onDelete,
 }: {
   ticket: any
   index: number
   eventCurrency: string
+  eventTimezone: string
   onEdit: (ticket: any) => void
   onDelete: (ticketTypeId: string) => void
 }) {
@@ -89,8 +95,17 @@ function TicketTypeRow({
                 · {ticket.maxQuantity - (ticket.soldCount || 0)} of{" "}
                 {ticket.maxQuantity} available
               </span>
-            )}
-          </p>
+              )}
+            </p>
+            {ticket.lateSurchargeMinor > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Late surcharge: +{formatMoney(ticket.lateSurchargeMinor, eventCurrency)}
+                {ticket.lateSurchargeEffectiveAt !== undefined &&
+                ticket.lateSurchargeEffectiveAt !== null
+                  ? ` from ${epochToEventLocalDateTime(ticket.lateSurchargeEffectiveAt, eventTimezone) ?? "the configured effective time"} (${eventTimezone})`
+                  : " (effective time missing)"}
+              </p>
+            ) : null}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -130,6 +145,9 @@ export default function EventTicketsPage({
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null)
   const [ticketLabel, setTicketLabel] = useState("")
   const [ticketPrice, setTicketPrice] = useState("")
+  const [ticketSurcharge, setTicketSurcharge] = useState("")
+  const [ticketSurchargeEffectiveAt, setTicketSurchargeEffectiveAt] =
+    useState("")
   const [ticketQuantity, setTicketQuantity] = useState("")
   const [ticketIsActive, setTicketIsActive] = useState(true)
   const [ticketVisibility, setTicketVisibility] = useState<"public" | "hidden">(
@@ -177,6 +195,40 @@ export default function EventTicketsPage({
       return null
     }
 
+    const surchargeInput = ticketSurcharge.trim()
+    let lateSurchargeMinor = 0
+    if (
+      surchargeInput &&
+      Number(surchargeInput.replace(",", ".")) !== 0
+    ) {
+      const parsedSurcharge = parseMinorUnitsInput(surchargeInput)
+      if (!parsedSurcharge.ok) {
+        setTicketError("Late surcharge must be zero or a valid non-negative amount.")
+        return null
+      }
+      lateSurchargeMinor = parsedSurcharge.amountMinor
+    }
+
+    let lateSurchargeEffectiveAt: number | undefined
+    if (lateSurchargeMinor > 0) {
+      if (!ticketSurchargeEffectiveAt) {
+        setTicketError(
+          `A positive late surcharge requires an effective date and time in ${event.timezone}.`
+        )
+        return null
+      }
+      lateSurchargeEffectiveAt = eventLocalDateTimeToEpoch(
+        ticketSurchargeEffectiveAt,
+        event.timezone
+      ) ?? undefined
+      if (lateSurchargeEffectiveAt === undefined) {
+        setTicketError(
+          `Enter a valid date and time in the event timezone (${event.timezone}).`
+        )
+        return null
+      }
+    }
+
     const maxQuantity = ticketQuantity.trim()
       ? Number(ticketQuantity)
       : undefined
@@ -188,7 +240,12 @@ export default function EventTicketsPage({
       return null
     }
 
-    return { priceMinor: parsedPrice.amountMinor, maxQuantity }
+    return {
+      priceMinor: parsedPrice.amountMinor,
+      maxQuantity,
+      lateSurchargeMinor,
+      lateSurchargeEffectiveAt,
+    }
   }
 
   const handleAddTicket = async () => {
@@ -202,6 +259,8 @@ export default function EventTicketsPage({
         eventId: event._id,
         label: ticketLabel.trim(),
         priceMinor: form.priceMinor,
+        lateSurchargeMinor: form.lateSurchargeMinor,
+        lateSurchargeEffectiveAt: form.lateSurchargeEffectiveAt ?? null,
         maxQuantity: form.maxQuantity,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
@@ -231,6 +290,8 @@ export default function EventTicketsPage({
         ticketTypeId: editingTicketId as any,
         label: ticketLabel.trim(),
         priceMinor: form.priceMinor,
+        lateSurchargeMinor: form.lateSurchargeMinor,
+        lateSurchargeEffectiveAt: form.lateSurchargeEffectiveAt ?? null,
         maxQuantity: form.maxQuantity,
         isActive: ticketIsActive,
         visibility: ticketVisibility,
@@ -272,6 +333,8 @@ export default function EventTicketsPage({
     setEditingTicketId(null)
     setTicketLabel("")
     setTicketPrice("")
+    setTicketSurcharge("")
+    setTicketSurchargeEffectiveAt("")
     setTicketQuantity("")
     setTicketIsActive(true)
     setTicketVisibility("public")
@@ -283,6 +346,20 @@ export default function EventTicketsPage({
     setEditingTicketId(ticket._id)
     setTicketLabel(ticket.label)
     setTicketPrice((ticket.priceMinor / 100).toFixed(2))
+    setTicketSurcharge(
+      ticket.lateSurchargeMinor
+        ? (ticket.lateSurchargeMinor / 100).toFixed(2)
+        : ""
+    )
+    setTicketSurchargeEffectiveAt(
+      ticket.lateSurchargeEffectiveAt !== undefined &&
+      ticket.lateSurchargeEffectiveAt !== null
+        ? epochToEventLocalDateTime(
+            ticket.lateSurchargeEffectiveAt,
+            event.timezone
+          ) ?? ""
+        : ""
+    )
     setTicketQuantity(ticket.maxQuantity?.toString() ?? "")
     setTicketIsActive(ticket.isActive)
     setTicketVisibility(ticket.visibility)
@@ -393,6 +470,35 @@ export default function EventTicketsPage({
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+                  Late Surcharge ({event.currency})
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={ticketSurcharge}
+                  onChange={(e) => setTicketSurcharge(e.target.value)}
+                  placeholder="0.00 (none)"
+                  className="rounded-xl border-white/20 bg-white/50 dark:bg-black/20"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
+                  Surcharge Effective ({event.timezone})
+                </label>
+                <Input
+                  type="datetime-local"
+                  step="60"
+                  value={ticketSurchargeEffectiveAt}
+                  onChange={(e) => setTicketSurchargeEffectiveAt(e.target.value)}
+                  className="rounded-xl border-white/20 bg-white/50 dark:bg-black/20"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Interpreted in the event timezone. Leave blank when no surcharge is configured.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
                   Quantity Available
                 </label>
                 <Input
@@ -500,6 +606,7 @@ export default function EventTicketsPage({
                     ticket={ticket}
                     index={index}
                     eventCurrency={event.currency}
+                    eventTimezone={event.timezone}
                     onEdit={startEditingTicket}
                     onDelete={handleDeleteTicket}
                   />

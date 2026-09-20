@@ -6,6 +6,7 @@ import {
 } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import { resolveTicketPriceSnapshot } from "../lib/domain/finance/ticket-pricing"
 
 // =============================================================================
 // CANONICAL EVENTS - Source-agnostic queries using the canonical events table
@@ -338,6 +339,8 @@ export const createTicketType = mutation({
     eventId: v.id("events"),
     label: v.string(),
     priceMinor: v.number(),
+    lateSurchargeMinor: v.optional(v.number()),
+    lateSurchargeEffectiveAt: v.optional(v.union(v.number(), v.null())),
     maxQuantity: v.optional(v.number()),
     isActive: v.optional(v.boolean()),
     visibility: v.optional(v.union(v.literal("public"), v.literal("hidden"))),
@@ -347,6 +350,17 @@ export const createTicketType = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const event = await ctx.db.get("events", args.eventId)
+    if (!event) {
+      throw new Error("Event not found")
+    }
+    const lateSurchargeMinor = validateLateSurchargeMinor(
+      args.lateSurchargeMinor
+    )
+    const lateSurchargeEffectiveAt = validateLateSurchargeEffectiveAt(
+      lateSurchargeMinor,
+      args.lateSurchargeEffectiveAt
+    )
     const now = Date.now()
     const existingTicketTypes = await ctx.db
       .query("ticketTypes")
@@ -361,6 +375,12 @@ export const createTicketType = mutation({
       eventId: args.eventId,
       label: args.label,
       priceMinor: args.priceMinor,
+      ...(lateSurchargeMinor > 0
+        ? {
+            lateSurchargeMinor,
+            lateSurchargeEffectiveAt,
+          }
+        : {}),
       maxQuantity: args.maxQuantity,
       sortOrder: nextSortOrder,
       soldCount: 0,
@@ -380,6 +400,8 @@ export const updateTicketType = mutation({
     ticketTypeId: v.id("ticketTypes"),
     label: v.optional(v.string()),
     priceMinor: v.optional(v.number()),
+    lateSurchargeMinor: v.optional(v.number()),
+    lateSurchargeEffectiveAt: v.optional(v.union(v.number(), v.null())),
     maxQuantity: v.optional(v.number()),
     sortOrder: v.optional(v.number()),
     isActive: v.optional(v.boolean()),
@@ -393,14 +415,70 @@ export const updateTicketType = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
-    const { ticketTypeId, ...updates } = args
+    const existing = await ctx.db.get("ticketTypes", args.ticketTypeId)
+    if (!existing) {
+      throw new Error("Ticket type not found")
+    }
+    const {
+      ticketTypeId,
+      lateSurchargeMinor,
+      lateSurchargeEffectiveAt,
+      ...updates
+    } = args
+    const nextLateSurchargeMinor = validateLateSurchargeMinor(
+      lateSurchargeMinor ?? existing.lateSurchargeMinor
+    )
+    const nextLateSurchargeEffectiveAt = validateLateSurchargeEffectiveAt(
+      nextLateSurchargeMinor,
+      lateSurchargeEffectiveAt === null
+        ? undefined
+        : lateSurchargeEffectiveAt ?? existing.lateSurchargeEffectiveAt
+    )
     await ctx.db.patch("ticketTypes", ticketTypeId, {
       ...updates,
+      lateSurchargeMinor:
+        nextLateSurchargeMinor > 0 ? nextLateSurchargeMinor : undefined,
+      lateSurchargeEffectiveAt:
+        nextLateSurchargeMinor > 0
+          ? nextLateSurchargeEffectiveAt
+          : undefined,
       updatedAt: Date.now(),
     })
     return ticketTypeId
   },
 })
+
+function validateLateSurchargeMinor(value: number | undefined): number {
+  if (value === undefined) {
+    return 0
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(
+      "Late surcharge must be a non-negative integer amount in minor units."
+    )
+  }
+  return value
+}
+
+function validateLateSurchargeEffectiveAt(
+  surchargeMinor: number,
+  value: number | null | undefined
+): number | undefined {
+  if (surchargeMinor === 0) {
+    return undefined
+  }
+  if (
+    value === undefined ||
+    value === null ||
+    !Number.isInteger(value) ||
+    !Number.isFinite(value)
+  ) {
+    throw new Error(
+      "A positive late surcharge requires an effective date and time."
+    )
+  }
+  return value
+}
 
 export const reorderTicketTypes = mutation({
   args: {
@@ -502,6 +580,7 @@ export const createManualAttendee = mutation({
     if (ticketType.eventId !== args.eventId) {
       throw new Error("Ticket type does not belong to the supplied event")
     }
+    const ticketPriceSnapshot = resolveTicketPriceSnapshot(ticketType, now)
 
     // Create the order
     const orderId = await ctx.db.insert("orders", {
@@ -514,7 +593,7 @@ export const createManualAttendee = mutation({
       bookerPhone: args.attendeePhone,
       submittedAt: now,
       currency: "EUR", // Default currency, could be fetched from event
-      totalAmountMinor: ticketType.priceMinor,
+      totalAmountMinor: ticketPriceSnapshot.unitPriceMinor,
       status: "pending",
       orderedAt: now,
     })
@@ -543,6 +622,7 @@ export const createManualAttendee = mutation({
       ticketTypeId: args.ticketTypeId,
       quantity: 1,
       sortOrder: 0,
+      ticketPriceSnapshot,
     })
 
     // Update ticket type sold count
