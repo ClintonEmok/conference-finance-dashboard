@@ -6,6 +6,7 @@ import {
 } from "./_generated/server"
 import { v } from "convex/values"
 import { requireIdentity } from "./auth"
+import { resolveTicketPriceSnapshot } from "../lib/domain/finance/ticket-pricing"
 
 // =============================================================================
 // CANONICAL EVENTS - Source-agnostic queries using the canonical events table
@@ -579,6 +580,7 @@ export const createManualAttendee = mutation({
     if (ticketType.eventId !== args.eventId) {
       throw new Error("Ticket type does not belong to the supplied event")
     }
+    const ticketPriceSnapshot = resolveTicketPriceSnapshot(ticketType, now)
 
     // Create the order
     const orderId = await ctx.db.insert("orders", {
@@ -591,7 +593,7 @@ export const createManualAttendee = mutation({
       bookerPhone: args.attendeePhone,
       submittedAt: now,
       currency: "EUR", // Default currency, could be fetched from event
-      totalAmountMinor: ticketType.priceMinor,
+      totalAmountMinor: ticketPriceSnapshot.unitPriceMinor,
       status: "pending",
       orderedAt: now,
     })
@@ -620,6 +622,7 @@ export const createManualAttendee = mutation({
       ticketTypeId: args.ticketTypeId,
       quantity: 1,
       sortOrder: 0,
+      ticketPriceSnapshot,
     })
 
     // Update ticket type sold count

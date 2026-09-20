@@ -12,6 +12,7 @@ import {
   resolveTicketCategoryById,
   type PublicSignupSelectionResolved,
 } from "./signupCatalog"
+import { resolveTicketPriceSnapshot } from "../lib/domain/finance/ticket-pricing"
 import {
   buildSearchHaystack,
   collectSourceSearchPage,
@@ -1204,6 +1205,7 @@ export const updateAttendee = mutation({
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx)
+    const now = Date.now()
 
     const resolved = await resolveAttendeeRecordByStringId(ctx, args.attendeeId)
 
@@ -1306,6 +1308,7 @@ export const updateAttendee = mutation({
 
         await ctx.db.patch("orderTicketSelections", selection._id, {
           ticketTypeId: args.ticketTypeId,
+          ticketPriceSnapshot: resolveTicketPriceSnapshot(nextTicketType, now),
         })
 
         if (currentTicketType) {
@@ -1414,6 +1417,7 @@ export const addAttendeeToOrder = mutation({
 
     const now = Date.now()
     const attendeeKey = `manual-${now}-${Math.random().toString(36).slice(2, 10)}`
+    const ticketPriceSnapshot = resolveTicketPriceSnapshot(ticketType, now)
     const email = args.email?.trim() || undefined
     const attendeeId = await ctx.db.insert("orderAttendees", {
       orderId: args.orderId,
@@ -1432,6 +1436,7 @@ export const addAttendeeToOrder = mutation({
       ticketTypeId: args.ticketTypeId,
       quantity: 1,
       sortOrder: nextSortOrder,
+      ticketPriceSnapshot,
     })
 
     await ctx.db.patch("ticketTypes", args.ticketTypeId, {
