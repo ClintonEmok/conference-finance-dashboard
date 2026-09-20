@@ -915,6 +915,8 @@ export declare const api: {
         eventId: Id<"events">;
         isActive?: boolean;
         label: string;
+        lateSurchargeEffectiveAt?: number | null;
+        lateSurchargeMinor?: number;
         maxQuantity?: number;
         priceMinor: number;
         requiresBed?: boolean;
@@ -1062,6 +1064,8 @@ export declare const api: {
         availabilityState?: "selectable" | "unavailable";
         isActive?: boolean;
         label?: string;
+        lateSurchargeEffectiveAt?: number | null;
+        lateSurchargeMinor?: number;
         maxQuantity?: number;
         priceMinor?: number;
         requiresBed?: boolean;

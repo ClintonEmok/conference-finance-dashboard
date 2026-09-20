@@ -94,6 +94,8 @@ export default defineSchema({
       eventId: v.id("events"),
       label: v.string(),
       priceMinor: v.number(),
+      lateSurchargeMinor: v.optional(v.number()),
+      lateSurchargeEffectiveAt: v.optional(v.number()),
       maxQuantity: v.optional(v.number()),
       sortOrder: v.optional(v.number()),
       soldCount: v.optional(v.number()),
@@ -361,6 +363,15 @@ export default defineSchema({
       ticketTypeId: v.id("ticketTypes"),
       quantity: v.number(),
       sortOrder: v.number(),
+      ticketPriceSnapshot: v.optional(
+        v.object({
+          basePriceMinor: v.number(),
+          surchargeMinor: v.number(),
+          unitPriceMinor: v.number(),
+          pricedAt: v.number(),
+          lateSurchargeEffectiveAt: v.optional(v.number()),
+        })
+      ),
     })
   )
     .index("by_orderId", ["orderId"])
