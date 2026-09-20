@@ -100,7 +100,8 @@ function TicketTypeRow({
             {ticket.lateSurchargeMinor > 0 ? (
               <p className="text-xs text-muted-foreground">
                 Late surcharge: +{formatMoney(ticket.lateSurchargeMinor, eventCurrency)}
-                {ticket.lateSurchargeEffectiveAt
+                {ticket.lateSurchargeEffectiveAt !== undefined &&
+                ticket.lateSurchargeEffectiveAt !== null
                   ? ` from ${epochToEventLocalDateTime(ticket.lateSurchargeEffectiveAt, eventTimezone) ?? "the configured effective time"} (${eventTimezone})`
                   : " (effective time missing)"}
               </p>
@@ -196,7 +197,10 @@ export default function EventTicketsPage({
 
     const surchargeInput = ticketSurcharge.trim()
     let lateSurchargeMinor = 0
-    if (surchargeInput && surchargeInput !== "0" && surchargeInput !== "0.00") {
+    if (
+      surchargeInput &&
+      Number(surchargeInput.replace(",", ".")) !== 0
+    ) {
       const parsedSurcharge = parseMinorUnitsInput(surchargeInput)
       if (!parsedSurcharge.ok) {
         setTicketError("Late surcharge must be zero or a valid non-negative amount.")
@@ -348,7 +352,8 @@ export default function EventTicketsPage({
         : ""
     )
     setTicketSurchargeEffectiveAt(
-      ticket.lateSurchargeEffectiveAt
+      ticket.lateSurchargeEffectiveAt !== undefined &&
+      ticket.lateSurchargeEffectiveAt !== null
         ? epochToEventLocalDateTime(
             ticket.lateSurchargeEffectiveAt,
             event.timezone
