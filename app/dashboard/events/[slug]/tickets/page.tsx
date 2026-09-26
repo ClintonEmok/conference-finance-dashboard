@@ -27,7 +27,11 @@ import {
 import { useEventDashboard } from "@/components/dashboard/event-dashboard-context"
 import { useRoomTypes } from "@/lib/convex/hooks/accommodation"
 import { Id } from "@/convex/_generated/dataModel"
-import { formatMoney, parseMinorUnitsInput } from "@/lib/format"
+import {
+  formatMoney,
+  parseMinorUnitsInput,
+  parseNonNegativeMinorUnitsInput,
+} from "@/lib/format"
 import {
   epochToEventLocalDateTime,
   eventLocalDateTimeToEpoch,
@@ -190,9 +194,9 @@ export default function EventTicketsPage({
       return null
     }
 
-    const parsedPrice = parseMinorUnitsInput(ticketPrice)
+    const parsedPrice = parseNonNegativeMinorUnitsInput(ticketPrice)
     if (!parsedPrice.ok) {
-      setTicketError(`Enter a valid positive ticket price in ${event.currency}.`)
+      setTicketError(`Enter a valid non-negative ticket price in ${event.currency}.`)
       return null
     }
 
@@ -462,7 +466,7 @@ export default function EventTicketsPage({
                 <Input
                   type="number"
                   step="0.01"
-                   min="0.01"
+                   min="0"
                   value={ticketPrice}
                   onChange={(e) => setTicketPrice(e.target.value)}
                   placeholder="0.00"

@@ -78,3 +78,30 @@ export function parseMinorUnitsInput(value: string): ParsedMinorUnitsInput {
 
   return { ok: true, amountMinor }
 }
+
+/**
+ * Parses an operator-typed decimal amount into INTEGER MINOR UNITS while
+ * allowing a zero amount. Useful for free ticket types, but not surcharges or
+ * allocation amounts, which must remain strictly positive.
+ */
+export function parseNonNegativeMinorUnitsInput(
+  value: string
+): ParsedMinorUnitsInput {
+  const trimmed = value.trim()
+  if (trimmed === "") {
+    return { ok: false, reason: "empty" }
+  }
+
+  if (!MINOR_UNITS_INPUT_PATTERN.test(trimmed)) {
+    return { ok: false, reason: "malformed" }
+  }
+
+  const [whole, fraction = ""] = trimmed.split(/[,.]/)
+  const amountMinor = Number(whole) * 100 + Number(fraction.padEnd(2, "0"))
+
+  if (!Number.isInteger(amountMinor) || amountMinor < 0) {
+    return { ok: false, reason: "non_positive" }
+  }
+
+  return { ok: true, amountMinor }
+}

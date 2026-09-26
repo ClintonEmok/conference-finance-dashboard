@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { formatMoney, parseMinorUnitsInput } from "@/lib/format"
+import {
+  formatMoney,
+  parseMinorUnitsInput,
+  parseNonNegativeMinorUnitsInput,
+} from "@/lib/format"
 
 /**
  * The shared typed-amount parser (Phase 58 task 1) plus a regression pin on the
@@ -58,5 +62,25 @@ describe("parseMinorUnitsInput", () => {
         reason: "malformed",
       })
     }
+  })
+})
+
+describe("parseNonNegativeMinorUnitsInput", () => {
+  it("accepts zero for free ticket types", () => {
+    expect(parseNonNegativeMinorUnitsInput("0.00")).toEqual({
+      ok: true,
+      amountMinor: 0,
+    })
+  })
+
+  it("accepts positive amounts and rejects malformed input", () => {
+    expect(parseNonNegativeMinorUnitsInput("50.00")).toEqual({
+      ok: true,
+      amountMinor: 5_000,
+    })
+    expect(parseNonNegativeMinorUnitsInput("-1")).toEqual({
+      ok: false,
+      reason: "malformed",
+    })
   })
 })
