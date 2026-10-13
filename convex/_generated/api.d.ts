@@ -2713,6 +2713,14 @@ export declare const internal: {
       any
     >;
   };
+  fixDivineRedesignLateSurchargeSnapshot: {
+    default: FunctionReference<
+      "mutation",
+      "internal",
+      { allowedDeploymentUrl?: string; authorize: boolean },
+      { selectionsChecked: number; selectionsCorrected: number }
+    >;
+  };
   fixDivineRedesignTicketLabels: {
     default: FunctionReference<
       "mutation",
