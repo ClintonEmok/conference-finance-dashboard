@@ -31,7 +31,7 @@ See: `.planning/PROJECT.md`.
 Phase: 46 of 51 (Event-Owned Setup Schema, Generalized Pricing & Shared Contract) — planned, not started
 Plan: 5 plans in 5 sequential waves (46-01 through 46-05)
 Status: Phase 46 executable plans written — ready for execution
-Last activity: 2026-08-16 — Completed quick task 260816-fgu: Communications Center — fixed standard announcement (shared copy module, no venue/location in template), event/search-scoped scheduleEmailBroadcast (server-derived copy/metadata, search-scoped recipient snapshot, queued-only), standard announcement card with real-template iframe preview + explicit confirm send dialog (authorize: true); rendered email screenshot captured at quick artifact path; 546 unit + 34 convex tests + typecheck + build green
+Last activity: 2026-09-20 — Completed quick task 260920-oiz: implemented event-timezone-aware per-attendee ticket surcharges with immutable ticket price snapshots, public pricing/quote integration, canonical finance wiring, legacy compatibility, dashboard controls, and full validation green
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -100,6 +100,8 @@ Progress: [░░░░░░░░░░] 0%
 | 260816-fgu | Communications Center: fixed standard announcement send — lib/email/announcement-copy.ts shared copy, AnnouncementEmail no venue/location, scheduleEmailBroadcast tightened to eventId+search+authorize (server-derived copy/title/date/signup URL, previewAudience search semantics, stored search scope, queued-only scheduler), standard announcement card with real-template iframe preview + explicit confirm dialog selecting the returned broadcast; rendered email screenshot captured (untracked); 546 unit + 34 convex tests + typecheck + build green, no production broadcast | 2026-08-16 | 983f956 |  | [260816-fgu-implement-and-send-me-a-screenshot-of-th](./quick/260816-fgu-implement-and-send-me-a-screenshot-of-th/) |
 | 260819-rpv | Persisted canonical Tikkie event and payer-account data, bounded matching by event, and added a non-authoritative account tie-breaker; focused and full validation passed | 2026-08-19 | e2ffabc | Verified | [260819-rpv-optimize-tikkie-payment-matching-by-usin](./quick/260819-rpv-optimize-tikkie-payment-matching-by-usin/) |
 | 260823-ht1 | Preserve booking references during safe multi-source merge: alias-aware booking resolution (convex/bookingRefs.ts), orderBookingRefAliases table, core merge markers on orders, fail-closed multi-source whole-order merge mutation with preflight guards, authenticated array-based API route, order-detail Merge action wired to existing dialog, 229 convex + 571 unit tests + typecheck + build green | 2026-08-23 | e8e478c | Verified | [260823-ht1-preserve-booking-references-during-safe-](./quick/260823-ht1-preserve-booking-references-during-safe-/) |
+
+| 260920-oiz | Implemented event-timezone-aware per-attendee ticket surcharges with immutable ticket price snapshots, public pricing/quote integration, canonical finance wiring, legacy compatibility, dashboard controls, and full validation green | 2026-09-20 | 84abc00 | Verified | [260920-oiz-implement-configurable-effective-time-pe](./quick/260920-oiz-implement-configurable-effective-time-pe/)
 
 ## Deferred Verification
 

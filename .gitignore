@@ -65,3 +65,6 @@ next-env.d.ts
 .zencoder/
 skills/
 .planning/
+
+# clerk configuration (can include secrets)
+/.clerk/
